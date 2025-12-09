@@ -1,13 +1,6 @@
-# 主要EPG源（数据较新）
+# 已验证有效的 EPG 源
 https://epg.112114.xyz/pp.xml
 https://epg.112114.xyz/ds.xml
-
-# 备用源
 https://epg.pw/pp.xml
-http://epg.51zmt.top:8000/e.xml
 https://raw.githubusercontent.com/fanmingming/live/main/e.xml
-
-# 原有源（保留）
-https://epg.27481716.xyz/epg.xml
-https://e.erw.cc/all.xml
 https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz
