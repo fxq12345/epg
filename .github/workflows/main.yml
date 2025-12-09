@@ -2,8 +2,8 @@ name: 'Auto Update EPG'
 
 on:
   schedule:
-    - cron: '0 4,16 * * *'  # 每天 UTC 时间 4点和16点（北京时间12点和0点）
-  workflow_dispatch:         # 允许手动触发
+    - cron: '0 4,16 * * *'  # UTC 4点和16点 = 北京时间12点和0点
+  workflow_dispatch:
   push:
     branches:
       - master
@@ -13,7 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     
-    # 必须添加写入权限
     permissions:
       contents: write
     
@@ -21,46 +20,33 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Set up Python 3.13
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-          cache: 'pip'
+          # 完全去掉 cache 配置
       
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install pipenv
-          pipenv install --deploy --system
+          pipenv install --deploy
       
       - name: Generate EPG files
         run: |
-          echo "正在生成 EPG 文件..."
           pipenv run epg
-          echo "检查生成的文件..."
+          echo "查看生成的文件："
           ls -la output/
       
-      - name: Configure git
-        run: |
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
-      
       - name: Commit and push changes
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 添加所有变化
-          git add -A
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
           
-          # 检查是否有更改
+          git add output/
+          
           if git diff --staged --quiet; then
-            echo "🟢 没有需要提交的更改"
+            echo "没有文件需要更新"
           else
-            echo "🔄 提交更改..."
-            git commit -m "📺 自动更新 EPG - $(date +'%Y-%m-%d %H:%M:%S')"
-            echo "🚀 推送到 GitHub..."
-            # 使用 token 推送
-            git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-            git push origin HEAD:master
-            echo "✅ 更新完成！"
+            git commit -m "📺 EPG自动更新 - $(date +'%Y-%m-%d %H:%M:%S')"
+            git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
           fi
