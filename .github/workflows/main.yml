@@ -1,64 +1,58 @@
-name: 'Update schedule'
+name: 'Update EPG Schedule'
 
 on:
   schedule:
-    - cron: '0 4,16 * * *'
-  workflow_dispatch:
-    branches:
-      - master
+    - cron: '0 4,16 * * *'  # 每天 UTC 时间 4点和16点运行
+  workflow_dispatch:         # 允许手动触发
   push:
     branches:
       - master
+
 jobs:
-  push:
-    runs-on: ${{ matrix.operating-system }}
+  update-epg:
+    runs-on: ubuntu-latest
     timeout-minutes: 240
-    strategy:
-      matrix:
-        operating-system: [ 'ubuntu-latest' ]
+    
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
-      - name: Run with setup-python 3.13
+      
+      - name: Set up Python 3.13
         uses: actions/setup-python@v4
         with:
           python-version: '3.13'
           update-environment: true
           cache: 'pipenv'
+      
       - name: Install pipenv
         run: pip3 install --user pipenv
-      - name: Install dependecies
+      
+      - name: Install dependencies
         run: |
           pipenv lock
           pipenv --python 3.13 && pipenv install --deploy
+      
       - name: Update EPG
         run: pipenv run epg
-      - name: Commit and push if changed
+      
+      - name: Commit and push changes
         run: |
+          # 修改这里：替换为你的 GitHub 信息
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
+          
+          # 添加生成的文件
           if [[ -f "output/epg.xml" ]]; then
             git add -f "output/epg.xml"
           fi
           if [[ -f "output/epg.gz" ]]; then
             git add -f "output/epg.gz"
           fi
+          
+          # 如果有更改则提交
           if ! git diff --staged --quiet; then
-            git reset --soft $(git rev-list --max-parents=0 HEAD)
-            git commit --amend -m "Github Action Auto Updated"
-            git push --force
+            git commit -m "Auto Update EPG - $(date +'%Y-%m-%d %H:%M:%S')"
+            git push
           fi
-      
-      - name: Mirror the Github organization repos to Gitee.
-        uses: Yikun/hub-mirror-action@master
-        with:
-          src: 'github/mytv-android'    			
-          dst: 'gitee/mytv-android'   
-          dst_key: ${{ secrets.GITEE_PRIVATE_KEY }}  
-          dst_token:  ${{ secrets.GITEE_TOKEN }}  
-          force_update: true
-          static_list: "myEPG"
-          account_type: org   		
-          debug: true
-
