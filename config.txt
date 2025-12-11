@@ -1,2 +1,2 @@
 #epg链接，一行一个
-https://epg.zbds.top/
+https://epg.zbds.top/?ch={name}&date={date}
