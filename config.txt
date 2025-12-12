@@ -4,4 +4,4 @@ https://e.erw.cc/all.xml
 https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz
 http://epg.51zmt.top:8000/e.xml
 https://raw.githubusercontent.com/fanmingming/live/main/e.xml
-https://epg.zbds.top/t.xml.gz
+# https://epg.zbds.top/t.xml.gz  # 先注释掉，等主要功能正常后再处理
