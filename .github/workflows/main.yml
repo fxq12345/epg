@@ -1,7 +1,8 @@
 name: 'Auto Update EPG'
 
+# 修正点1：`on` 下的所有触发器已正确缩进
 on:
-schedule:
+  schedule:
     - cron: '0 7,15,23 * * *'  # UTC 7,15,23点 = 北京时间15,23,7点
   workflow_dispatch:
   push:
@@ -10,43 +11,48 @@ schedule:
 
 jobs:
   update:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    
-    permissions:
-      contents: write
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-          # 完全去掉 cache 配置
-      
-      - name: Install dependencies
-        run: |
-          pip install pipenv
-          pipenv install --deploy
-      
-      - name: Generate EPG files
-        run: |
-          pipenv run epg
-          echo "查看生成的文件："
-          ls -la output/
-      
-      - name: Commit and push changes
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          
-          git add output/
-          
-          if git diff --staged --quiet; then
-            echo "没有文件需要更新"
-          else
-            git commit -m "📺 EPG自动更新 - $(date +'%Y-%m-%d %H:%M:%S')"
-            git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-          fi
+连续运行: Ubuntu-最新版
+超时-分钟: 30
+
+    # 已配置写入权限,正确[引用:2]
+许可:
+内容: 写
+
+步伐:
+      - 名字: 结帐代码
+使用: 动作/签出@v4
+        # 修正点2(推荐):在检出时传入令牌，便于后续推送
+随着:
+代币: ${{秘密。GITHUB_TOKEN}}
+
+      - 名字: 设置Python
+使用: 操作/设置-python@v5
+随着:
+python版本: '3.13'
+          # 去掉隐藏物配置是允许的,只是不会缓存包
+
+      - 名字: 安装依赖项
+奔跑: |
+pip安装管道
+管道安装-部署
+
+      - 名字: 生成EPG文件
+奔跑: |
+pipenv运行epg
+回声”查看生成的文件:"
+ls -la输出/
+
+      - 名字: 提交和推送更改
+奔跑: |
+git config-local user . email " github-actions[bot]@ users . no reply . github . com "
+git config -本地user.name "github-actions[bot]"
+
+git添加输出/
+
+if git diff-staged-quiet；然后
+回声”没有文件需要更新"
+其他
+git提交-m "📺高级代表团(Eminent Person Group)自动更新- $(date +'%Y-%m-%d %H:%M:%S ')"
+# 修正点3(推荐):因为检出时已设置令牌，这里可以直接推送
+git推送
+船方不负担装货费用
