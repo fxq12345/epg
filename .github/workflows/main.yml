@@ -2,7 +2,7 @@ name: 'Auto Update EPG'
 
 on:
   schedule:
-    - cron: '0 5,16 * * *'  # UTC 5点和16点 = 北京时间13点和0点
+    - cron: '0 5,17 * * *'  # UTC 5点和17点 = 北京时间13点和1点
   workflow_dispatch:
   push:
     branches:
