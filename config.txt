@@ -1,7 +1,7 @@
 #epg链接，一行一个
-  https://epg.112114.xyz/pp.xml
   https://epg.51zmt.top:8001/e.xml
   http://e.erw.cc/all.xml
   https://epg.pw/xmltv/epg_CN.xml
   https://epg.pw/xmltv/epg_HK.xml
   https://epg.pw/xmltv/epg_TW.xml
+  https://epg.27481716.xyz/epg.xml
