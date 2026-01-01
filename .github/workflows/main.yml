@@ -2,9 +2,8 @@ name: 'Auto Update EPG'
 
 on:
   schedule:
-    - cron: '0 5,17 * * *'  # UTC 5点和17点 = 北京时间13点和1点
+    - cron: '0 5,17 * * *'
   workflow_dispatch:
-  push:
     branches:
       - master
 
@@ -24,29 +23,119 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-          # 完全去掉 cache 配置
       
       - name: Install dependencies
         run: |
           pip install pipenv
           pipenv install --deploy
       
-      - name: Generate EPG files
+      - name: Generate EPG with timestamp
         run: |
+          echo "生成开始时间: $(date)"
+          echo "当前时区: $(date +%Z)"
+          echo "UTC时间: $(date -u)"
+          
+          # 运行EPG生成
           pipenv run epg
-          echo "查看生成的文件："
-          ls -la output/
+          
+          echo "生成完成时间: $(date)"
       
-      - name: Commit and push changes
+      - name: Fix and validate EPG
+        run: |
+          echo "=== 修复和验证EPG ==="
+          
+          if [[ ! -f "output/epg.xml" ]]; then
+            echo "错误：未生成EPG文件"
+            exit 1
+          fi
+          
+          # 1. 修复XML格式
+          echo "1. 修复XML格式..."
+          # 确保有正确的XML声明
+          if ! head -1 output/epg.xml | grep -q '^<?xml'; then
+            sed -i '1i<?xml version="1.0" encoding="UTF-8"?>' output/epg.xml
+          fi
+          
+          # 2. 分析时间数据
+          echo "2. 分析时间数据..."
+          python3 << 'EOF'
+import datetime
+import re
+
+with open('output/epg.xml', 'r', encoding='utf-8') as f:
+    content = f.read()
+
+# 统计信息
+channels = len(re.findall(r'<channel\s', content))
+programmes = len(re.findall(r'<programme\s', content))
+print(f"频道数: {channels}")
+print(f"节目数: {programmes}")
+
+# 提取日期
+dates = re.findall(r'start="(\d{4})(\d{2})(\d{2})\d{6}', content)
+if dates:
+    unique_dates = set([f"{y}{m}{d}" for y, m, d in dates])
+    print(f"涉及日期数: {len(unique_dates)}")
+    
+    # 转换为datetime对象并排序
+    date_objs = [datetime.datetime(int(y), int(m), int(d)) for y, m, d in dates]
+    earliest = min(date_objs)
+    latest = max(date_objs)
+    today = datetime.datetime.now()
+    
+    print(f"最早节目: {earliest.strftime('%Y-%m-%d')}")
+    print(f"最晚节目: {latest.strftime('%Y-%m-%d')}")
+    print(f"今天日期: {today.strftime('%Y-%m-%d')}")
+    
+    # 检查是否有未来节目
+    future_progs = [d for d in date_objs if d >= today]
+    print(f"未来节目数: {len(future_progs)}")
+    
+    if len(future_progs) == 0:
+        print("⚠️ 警告：没有未来日期的节目！")
+        print("电视上将看不到节目预告。")
+EOF
+          
+          # 3. 如果有问题，尝试修复时间
+          echo "3. 检查是否需要修复时间..."
+          python3 << 'EOF'
+import re
+from datetime import datetime, timedelta
+
+with open('output/epg.xml', 'r', encoding='utf-8') as f:
+    content = f.read()
+
+# 检查是否有明显的时间错误（比如2025年的数据）
+old_pattern = r'start="2025\d{10}'
+old_dates = re.findall(old_pattern, content)
+if old_dates:
+    print(f"发现 {len(old_dates)} 个2025年的过时节目")
+    # 这里可以添加时间修复逻辑
+    # 例如：content = re.sub(r'start="2025', 'start="2026', content)
+EOF
+          
+          # 4. 创建压缩文件
+          echo "4. 创建压缩文件..."
+          gzip -c -9 output/epg.xml > output/epg.gz
+      
+      - name: Commit and push
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # 总是添加文件
           git add output/
           
-          # 使用--allow-empty参数，即使没有变化也提交
-          git commit --allow-empty -m "📺 EPG自动更新 - $(date +'%Y-%m-%d %H:%M:%S')"
+          if git diff --staged --quiet; then
+            echo "没有变化需要提交"
+            # 为了测试，还是提交一个空记录
+            git commit --allow-empty -m "📅 EPG测试 - $(date +'%Y-%m-%d %H:%M:%S')"
+          else
+            # 获取统计信息
+            channels=$(grep -c '<channel ' output/epg.xml)
+            programmes=$(grep -c '<programme ' output/epg.xml)
+            latest_date=$(grep -o 'start="[0-9]\{8\}' output/epg.xml | sort | tail -1)
+            
+            git commit -m "📺 EPG更新 - 频道:${channels} 节目:${programmes} 最新:${latest_date}"
+          fi
           
-          # 推送
           git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
