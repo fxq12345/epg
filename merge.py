@@ -16,35 +16,57 @@ TZ_UTC_PLUS_8 = timezone(timedelta(hours=8))
 
 def transform2_zh_hans(string):
     """繁体中文转简体中文"""
+    if not string:
+        return string
     cc = OpenCC("t2s")
     new_str = cc.convert(string)
     return new_str
 
 async def fetch_epg(url):
     """异步获取EPG数据"""
-    connector = aiohttp.TCPConnector(limit=16, ssl=False)
+    timeout = aiohttp.ClientTimeout(total=60)  # 60秒超时
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36"
     }
     try:
-        async with aiohttp.ClientSession(connector=connector, trust_env=True, headers=headers) as session:
-            async with session.get(url, timeout=30) as response:
+        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+            print(f"正在获取: {url}")
+            async with session.get(url) as response:
                 if response.status != 200:
                     print(f"{url} HTTP请求失败，状态码：{response.status}")
                     return None
                 
                 if url.endswith('.gz'):
                     compressed_data = await response.read()
+                    print(f"{url} 获取成功 (gzip压缩)，大小: {len(compressed_data)} 字节")
                     return gzip.decompress(compressed_data).decode('utf-8', errors='ignore')
                 else:
-                    return await response.text(encoding='utf-8')
-    except aiohttp.ClientError as e:
-        print(f"{url} HTTP请求错误: {e}")
-    except asyncio.TimeoutError:
-        print(f"{url} 请求超时")
+                    content = await response.text(encoding='utf-8')
+                    print(f"{url} 获取成功，大小: {len(content)} 字符")
+                    return content
     except Exception as e:
-        print(f"{url} 其他错误: {e}")
+        print(f"{url} 请求错误: {type(e).__name__}: {e}")
     return None
+
+def safe_parse_time(time_str):
+    """安全解析时间字符串"""
+    if not time_str:
+        return None
+    
+    try:
+        # 清理空格
+        time_str = re.sub(r'\s+', '', time_str)
+        
+        # 尝试解析
+        dt = datetime.strptime(time_str, "%Y%m%d%H%M%S%z")
+        
+        # 转换到北京时间
+        dt = dt.astimezone(TZ_UTC_PLUS_8)
+        
+        return dt
+    except Exception as e:
+        # 静默失败，不打印日志避免刷屏
+        return None
 
 def parse_epg(epg_content):
     """解析EPG XML数据"""
@@ -56,25 +78,26 @@ def parse_epg(epg_content):
         root = ET.fromstring(epg_content, parser=parser)
     except ET.ParseError as e:
         print(f"XML解析错误: {e}")
-        print(f"问题内容前500字符: {epg_content[:500]}")
         return {}, defaultdict(list)
 
     channels = {}
     programmes = defaultdict(list)
 
     # 解析频道信息
+    channel_count = 0
     for channel in root.findall('channel'):
+        channel_count += 1
         channel_id = channel.get('id')
-        if channel_id:
-            channel_id = transform2_zh_hans(channel_id)
-        else:
-            continue  # 跳过没有ID的频道
+        if not channel_id:
+            continue
         
+        channel_id = transform2_zh_hans(channel_id)
         channel_display_names = []
+        
         for name in channel.findall('display-name'):
             if name.text is not None:
                 display_name = name.text.strip()
-                if display_name:  # 跳过空字符串
+                if display_name:
                     display_name = transform2_zh_hans(display_name)
                     lang = name.get('lang', 'zh')
                     channel_display_names.append([display_name, lang])
@@ -82,67 +105,66 @@ def parse_epg(epg_content):
         if channel_display_names:
             channels[channel_id] = channel_display_names
 
+    print(f"解析到 {len(channels)} 个频道")
+
     # 解析节目信息
+    programme_count = 0
+    success_count = 0
+    
     for programme in root.findall('programme'):
+        programme_count += 1
+        if programme_count % 10000 == 0:
+            print(f"正在解析第 {programme_count} 个节目...")
+        
         channel_id = programme.get('channel')
         if not channel_id:
-            continue  # 跳过没有频道ID的节目
+            continue
         
         channel_id = transform2_zh_hans(channel_id)
         
-        # 解析开始和结束时间
-        start_time_str = programme.get('start')
-        stop_time_str = programme.get('stop')
-        if not start_time_str or not stop_time_str:
-            continue  # 跳过没有时间的节目
+        # 解析时间
+        start_dt = safe_parse_time(programme.get('start'))
+        stop_dt = safe_parse_time(programme.get('stop'))
         
-        try:
-            channel_start = datetime.strptime(
-                re.sub(r'\s+', '', start_time_str), "%Y%m%d%H%M%S%z")
-            channel_stop = datetime.strptime(
-                re.sub(r'\s+', '', stop_time_str), "%Y%m%d%H%M%S%z")
-            channel_start = channel_start.astimezone(TZ_UTC_PLUS_8)
-            channel_stop = channel_stop.astimezone(TZ_UTC_PLUS_8)
-        except ValueError as e:
-            print(f"时间解析错误: {e}, start: {start_time_str}, stop: {stop_time_str}")
+        if not start_dt or not stop_dt:
             continue
+        
+        success_count += 1
         
         # 创建新的programme元素
         channel_elem = ET.Element('programme', attrib={
             "channel": channel_id,
-            "start": channel_start.strftime("%Y%m%d%H%M%S %z"),
-            "stop": channel_stop.strftime("%Y%m%d%H%M%S %z")
+            "start": start_dt.strftime("%Y%m%d%H%M%S %z"),
+            "stop": stop_dt.strftime("%Y%m%d%H%M%S %z")
         })
         
         # 处理标题
         for title in programme.findall('title'):
             if title.text is not None:
                 channel_title = title.text.strip()
-                if channel_title:  # 跳过空标题
+                if channel_title:
                     langattr = title.get('lang', 'zh')
                     if langattr in ['zh', 'zh_TW', 'zh_HK']:
                         channel_title = transform2_zh_hans(channel_title)
                     
                     title_elem = ET.SubElement(channel_elem, 'title')
                     title_elem.text = channel_title
-                    if langattr:
-                        title_elem.set('lang', langattr)
+                    title_elem.set('lang', langattr)
         
         # 处理描述
         for desc in programme.findall('desc'):
             if desc.text is not None:
                 channel_desc = desc.text.strip()
-                if channel_desc:  # 跳过空描述
+                if channel_desc:
                     langattr = desc.get('lang', 'zh')
                     if langattr in ['zh', 'zh_TW', 'zh_HK']:
                         channel_desc = transform2_zh_hans(channel_desc)
                     
                     desc_elem = ET.SubElement(channel_elem, 'desc')
                     desc_elem.text = channel_desc
-                    if langattr:
-                        desc_elem.set('lang', langattr)
+                    desc_elem.set('lang', langattr)
         
-        # 处理其他元素（category, icon等）
+        # 处理其他元素
         for elem in programme:
             if elem.tag not in ['title', 'desc']:
                 new_elem = ET.SubElement(channel_elem, elem.tag, attrib=elem.attrib)
@@ -151,33 +173,35 @@ def parse_epg(epg_content):
         
         programmes[channel_id].append(channel_elem)
 
+    print(f"节目解析完成: 共 {programme_count} 个节目，成功 {success_count} 个")
     return channels, programmes
 
 async def process_epg_sources(epg_urls):
     """处理所有EPG源"""
+    print(f"开始处理 {len(epg_urls)} 个EPG源")
+    
     all_channels = {}
     all_programmes = defaultdict(list)
     
-    print("Fetching EPG data...")
-    epg_contents = []
-    
     # 异步获取所有EPG数据
-    async def fetch_with_progress(url):
-        content = await fetch_epg(url)
-        return url, content
+    tasks = []
+    for url in epg_urls:
+        task = asyncio.create_task(fetch_epg(url))
+        tasks.append(task)
     
-    tasks = [fetch_with_progress(url) for url in epg_urls]
-    results = await tqdm_asyncio.gather(*tasks, desc="Fetching URLs")
+    # 使用tqdm显示进度
+    results = []
+    for task in tqdm_asyncio.as_completed(tasks, desc="获取EPG源", total=len(tasks)):
+        result = await task
+        results.append(result)
     
     # 处理每个EPG源
-    for i, (url, epg_content) in enumerate(results, 1):
-        print(f"Processing EPG source... {i}/{len(epg_urls)}")
-        
+    for i, epg_content in enumerate(results):
         if epg_content is None:
-            print(f"跳过 {url}，获取数据失败")
+            print(f"EPG源 {i+1} 获取失败，跳过")
             continue
         
-        print("Parsing EPG data...")
+        print(f"处理EPG源 {i+1}/{len(epg_urls)}")
         channels, programmes = parse_epg(epg_content)
         
         # 合并频道信息
@@ -196,15 +220,23 @@ async def process_epg_sources(epg_urls):
         for channel_id, prog_list in programmes.items():
             all_programmes[channel_id].extend(prog_list)
     
-    print("Finished parsing all EPG sources")
     return all_channels, all_programmes
 
 def merge_epg(channels, programmes):
     """合并EPG数据并生成最终XML"""
+    print("开始合并EPG数据...")
+    
     # 创建根元素
     tv = ET.Element('tv')
     
+    # 添加生成时间注释
+    from datetime import datetime
+    gen_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    comment = ET.Comment(f' Generated by myEPG at {gen_time} ')
+    tv.insert(0, comment)
+    
     # 添加频道信息
+    print(f"添加 {len(channels)} 个频道...")
     for channel_id, display_names in channels.items():
         channel_elem = ET.SubElement(tv, 'channel', id=channel_id)
         for display_name, lang in display_names:
@@ -214,11 +246,14 @@ def merge_epg(channels, programmes):
                 display_elem.set('lang', lang)
     
     # 添加节目信息
+    total_programmes = sum(len(p) for p in programmes.values())
+    print(f"添加 {total_programmes} 个节目...")
     for channel_id, prog_list in programmes.items():
         for programme in prog_list:
             tv.append(programme)
     
     # 美化XML输出
+    print("生成XML文件...")
     rough_string = ET.tostring(tv, 'utf-8')
     reparsed = minidom.parseString(rough_string)
     pretty_xml = reparsed.toprettyxml(indent="  ", encoding='utf-8')
@@ -227,58 +262,72 @@ def merge_epg(channels, programmes):
 
 async def main():
     """主函数"""
+    print("=== EPG合并程序开始 ===")
+    
     # 从配置文件读取EPG源
     config_file = "config.txt"
     if os.path.exists(config_file):
         with open(config_file, 'r', encoding='utf-8') as f:
             epg_urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
     else:
-        # 使用默认EPG源
+        # 使用默认EPG源（你的新配置）
         epg_urls = [
-            "https://epg.112114.xyz/pp.xml",
-            "https://epg.51zmt.top:8001/e.xml",
-            "http://e.env.cc/all.xml",
-            "https://epg.pw/xmltv/epg_CN.xml",
-            "https://epg.pw/xmltv/epg_HK.xml",
-            "https://epg.pw/xmltv/epg_TW.xml"
+            "https://epg.27481716.xyz/epg.xml",
+            "https://e.erw.cc/all.xml",
+            "https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz",
+            "http://epg.51zmt.top:8000/e.xml",
+            "https://raw.githubusercontent.com/fanmingming/live/main/e.xml"
         ]
     
-    if not epg_urls:
-        print("没有可用的EPG源")
-        return
-    
-    print(f"找到 {len(epg_urls)} 个EPG源")
+    print(f"使用 {len(epg_urls)} 个EPG源:")
+    for url in epg_urls:
+        print(f"  - {url}")
     
     # 处理EPG源
     all_channels, all_programmes = await process_epg_sources(epg_urls)
     
     if not all_channels:
-        print("没有成功解析到任何频道信息")
+        print("错误：没有成功解析到任何频道信息")
         return
     
-    print(f"共解析到 {len(all_channels)} 个频道")
-    total_programmes = sum(len(progs) for progs in all_programmes.values())
-    print(f"共解析到 {total_programmes} 个节目")
+    print(f"\n解析结果统计:")
+    print(f"  频道数量: {len(all_channels)}")
+    total_programmes = sum(len(p) for p in all_programmes.values())
+    print(f"  节目数量: {total_programmes}")
     
     # 合并并生成最终EPG
-    print("Merging EPG data...")
     merged_epg = merge_epg(all_channels, all_programmes)
     
     # 保存到文件
-    output_file = "merged_epg.xml"
+    output_dir = "output"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    output_file = os.path.join(output_dir, "epg.xml")
     with open(output_file, 'wb') as f:
         f.write(merged_epg)
     
-    print(f"EPG数据已保存到 {output_file}")
+    print(f"\n✅ EPG数据已保存到 {output_file}")
     
-    # 压缩文件（可选）
-    compressed_file = "merged_epg.xml.gz"
+    # 压缩文件
+    compressed_file = os.path.join(output_dir, "epg.gz")
     with open(output_file, 'rb') as f_in:
         with gzip.open(compressed_file, 'wb') as f_out:
             shutil.copyfileobj(f_in, f_out)
     
-    print(f"压缩文件已保存到 {compressed_file}")
-    print("EPG合并完成！")
+    print(f"✅ 压缩文件已保存到 {compressed_file}")
+    
+    # 显示文件大小
+    import os
+    xml_size = os.path.getsize(output_file) / 1024 / 1024
+    gz_size = os.path.getsize(compressed_file) / 1024 / 1024
+    print(f"📊 文件大小: epg.xml: {xml_size:.2f} MB, epg.gz: {gz_size:.2f} MB")
+    
+    print("\n🎉 EPG合并完成！")
 
 if __name__ == "__main__":
+    # 设置事件循环策略，避免在GitHub Actions中出错
+    if os.name == 'nt':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
     asyncio.run(main())
