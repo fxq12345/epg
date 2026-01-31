@@ -50,6 +50,14 @@ jobs:
           
           echo "=== 生成日志 ==="
           cat epg_output.log || echo "无生成日志"
+          
+          # 调试：检查当前目录内容
+          echo "=== 当前目录内容 ==="
+          ls -la
+          
+          # 调试：检查output目录内容
+          echo "=== output目录内容 ==="
+          ls -la output/ || echo "output目录不存在"
 
       - name: Verify EPG content
         run: |
