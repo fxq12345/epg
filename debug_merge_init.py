@@ -1,39 +1,44 @@
-name: 'Auto Update EPG'
+import sys
+import traceback
 
-on:
-  schedule:
-    - cron: '0 0,12 * * *'
-  workflow_dispatch:
-  push:
-    branches:
-      - master
+print("=== 开始调试 merge.py 初始化 ===")
+sys.stdout.flush()
 
-jobs:
-  update:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
+# 逐个导入 merge.py 依赖，定位卡住点
+dependencies = [
+    'sys', 'os', 're', 'json', 'time', 'datetime',
+    'requests', 'lxml', 'bs4', 'xmltodict', 'aiohttp',
+    'asyncio', 'tqdm', 'opencc'
+]
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+for dep in dependencies:
+    try:
+        print(f"正在导入: {dep}")
+        sys.stdout.flush()
+        __import__(dep)
+        print(f"✅ 成功导入: {dep}")
+        sys.stdout.flush()
+    except Exception as e:
+        print(f"❌ 导入 {dep} 失败: {e}")
+        traceback.print_exc()
+        sys.stdout.flush()
+        sys.exit(1)
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
+print("=== 所有依赖导入成功 ===")
+sys.stdout.flush()
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests lxml beautifulsoup4 xmltodict aiohttp tqdm opencc-python-reimplemented
+# 尝试导入 merge.py 本身
+try:
+    print("正在导入 merge.py")
+    sys.stdout.flush()
+    import merge
+    print("✅ 成功导入 merge.py")
+    sys.stdout.flush()
+except Exception as e:
+    print(f"❌ 导入 merge.py 失败: {e}")
+    traceback.print_exc()
+    sys.stdout.flush()
+    sys.exit(1)
 
-      - name: Debug merge.py initialization
-        env:
-          PYTHONUNBUFFERED: 1
-          PYTHONFAULTHANDLER: 1
-        run: |
-          timeout 300s python debug_merge_init.py
+print("=== 初始化调试完成 ===")
+sys.stdout.flush()
