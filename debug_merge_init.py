@@ -4,7 +4,6 @@ import traceback
 print("=== 开始调试 merge.py 初始化 ===")
 sys.stdout.flush()
 
-# 逐个导入 merge.py 依赖，定位卡住点
 dependencies = [
     'sys', 'os', 're', 'json', 'time', 'datetime',
     'requests', 'lxml', 'bs4', 'xmltodict', 'aiohttp',
@@ -27,7 +26,6 @@ for dep in dependencies:
 print("=== 所有依赖导入成功 ===")
 sys.stdout.flush()
 
-# 尝试导入 merge.py 本身
 try:
     print("正在导入 merge.py")
     sys.stdout.flush()
