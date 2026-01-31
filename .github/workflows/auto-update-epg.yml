@@ -31,9 +31,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests lxml beautifulsoup4 xmltodict aiohttp tqdm opencc-python-reimplemented
 
-      - name: Smart debug merge.py
+      - name: Final debug merge.py
         env:
           PYTHONUNBUFFERED: 1
           PYTHONFAULTHANDLER: 1
         run: |
-          timeout 300s 
+          python debug_merge_final.py
