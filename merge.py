@@ -4,13 +4,12 @@ from lxml import etree
 import xmltodict
 import json
 
-# 你的EPG源列表
+# 替换为zyrf999/myEPG仓库里的稳定源
 EPG_SOURCES = [
-    "https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz",
-    "https://your-second-source.com/epg.xml",
-    "https://your-third-source.com/epg.gz",
-    "https://your-fourth-source.com/epg.xml",
-    "https://your-fifth-source.com/epg.gz"
+    "https://epg.27481716.xyz/epg.xml",
+    "https://e.erw.cc/all.xml",
+    "http://epg.51zmt.top:8000/e.xml.gz",
+    "https://raw.githubusercontent.com/fanmingming/live/main/epg.xml.gz"
 ]
 
 def fetch_and_parse_epg(url):
