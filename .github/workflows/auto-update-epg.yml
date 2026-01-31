@@ -32,7 +32,7 @@ jobs:
           if [ -f "requirements.txt" ]; then
             pip install -r requirements.txt
           else
-            pip install requests lxml beautifulsoup4 xmltodict aiohttp tqdm
+            pip install requests lxml beautifulsoup4 xmltodict aiohttp tqdm opencc-python-reimplemented
           fi
 
       - name: Generate EPG with enhanced error capture
