@@ -1,17 +1,23 @@
 import requests
 import gzip
 from lxml import etree
-import xmltodict
-import json
 import os
 
-# 使用zyrf999/myEPG仓库里的稳定源
-EPG_SOURCES = [
-    "https://epg.27481716.xyz/epg.xml",
-    "https://e.erw.cc/all.xml",
-    "http://epg.51zmt.top:8000/e.xml.gz",
-    "https://raw.githubusercontent.com/fanmingming/live/main/epg.xml.gz"
-]
+def read_config(config_file='config.txt'):
+    """从配置文件读取EPG源链接"""
+    sources = []
+    try:
+        with open(config_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # 跳过注释和空行
+                if line and not line.startswith('#'):
+                    sources.append(line)
+        print(f"✅ 从 {config_file} 读取到 {len(sources)} 个EPG源")
+        return sources
+    except Exception as e:
+        print(f"❌ 读取配置文件出错: {e}")
+        return []
 
 def fetch_and_parse_epg(url):
     """抓取并解析单个EPG源"""
@@ -68,7 +74,13 @@ def merge_epg_sources(sources):
 def main():
     print("=== 开始EPG合并 ===")
 
-    # 抓取所有EPG源
+    # 1. 读取配置文件
+    EPG_SOURCES = read_config()
+    if not EPG_SOURCES:
+        print("❌ 没有可用的EPG源，退出程序")
+        return
+
+    # 2. 抓取所有EPG源
     epg_sources = [fetch_and_parse_epg(url) for url in EPG_SOURCES]
     epg_sources = [src for src in epg_sources if src is not None]
 
@@ -81,18 +93,21 @@ def main():
         print(f"✅ 成功合并 {len(epg_sources)} 个EPG源")
         print(f"📺 共 {len(tv.findall('.//channel'))} 个频道，{len(tv.findall('.//programme'))} 个节目")
 
-    # 生成最终XML
+    # 3. 生成最终XML
     xml_str = etree.tostring(tv, encoding='utf-8', pretty_print=True, xml_declaration=True).decode('utf-8')
 
-    # 保存为未压缩的XML文件
-    with open('epg.xml', 'w', encoding='utf-8') as f:
-        f.write(xml_str)
-    print("✅ EPG文件已保存为 epg.xml")
+    # 4. 确保output目录存在
+    os.makedirs('output', exist_ok=True)
 
-    # 保存为gzip压缩文件
-    with gzip.open('epg.gz', 'wb') as f:
+    # 5. 保存为未压缩的XML文件
+    with open('output/epg.xml', 'w', encoding='utf-8') as f:
+        f.write(xml_str)
+    print("✅ EPG文件已保存为 output/epg.xml")
+
+    # 6. 保存为gzip压缩文件
+    with gzip.open('output/epg.gz', 'wb') as f:
         f.write(xml_str.encode('utf-8'))
-    print("✅ 压缩版EPG文件已保存为 epg.gz")
+    print("✅ 压缩版EPG文件已保存为 output/epg.gz")
 
 if __name__ == "__main__":
     main()
