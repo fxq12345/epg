@@ -36,4 +36,4 @@ jobs:
           PYTHONUNBUFFERED: 1
           PYTHONFAULTHANDLER: 1
         run: |
-          timeout 300s python debug_merge_smart.py
+          timeout 300s 
