@@ -6,8 +6,8 @@ import time
 print("=== 开始终极调试 merge.py ===")
 sys.stdout.flush()
 
-# 定义超时时间（秒）
-TIMEOUT = 300
+# 定义超时时间（秒），从300秒延长到600秒（10分钟）
+TIMEOUT = 600
 
 # 定义实时输出的线程
 def stream_output(process):
