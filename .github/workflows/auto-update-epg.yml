@@ -1,0 +1,99 @@
+name: 'Auto Update EPG'
+
+on:
+  schedule:
+    - cron: '0 0,12 * * *'  # UTC0=北京8点，UTC12=北京20点，避开凌晨风控
+  workflow_dispatch:        # 手动触发（优先用这个测试）
+  push:
+    branches:
+      - master              # 你的仓库默认分支
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write       # 显式声明读写权限，避免推送失败
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1    # 浅克隆，加快速度
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'  # 降级为3.10，兼容原仓库依赖
+          cache: 'pip'            # 缓存依赖，后续执行更快
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+            echo "依赖安装完成"
+          else
+            echo "⚠️ 未找到requirements.txt，安装基础依赖"
+            pip install requests lxml beautifulsoup4 xmltodict
+          fi
+
+      - name: Generate EPG with detailed logging
+        run: |
+          echo "=== 开始生成EPG ==="
+          # 清空旧的output文件
+          rm -f output/epg.xml output/epg.gz 2>/dev/null || true
+          
+          # 执行当前仓库的核心脚本merge.py
+          set -x
+          python merge.py 2>&1 | tee epg_output.log
+          set +x
+          
+          echo "=== 生成日志 ==="
+          cat epg_output.log || echo "无生成日志"
+
+      - name: Verify EPG content
+        run: |
+          echo "=== 验证EPG文件 ==="
+          ls -la output/epg.xml 2>/dev/null || echo "❌ 未生成output/epg.xml"
+          
+          if [[ -f "output/epg.xml" ]]; then
+            echo "EPG文件大小: $(du -h output/epg.xml)"
+            echo "文件行数: $(wc -l < output/epg.xml)"
+            
+            # 统计频道和节目数
+            channels=$(grep -c '<channel ' output/epg.xml)
+            programmes=$(grep -c '<programme ' output/epg.xml)
+            echo "频道数量: $channels | 节目数量: $programmes"
+            
+            if [[ $programmes -eq 0 ]]; then
+              echo "⚠️ 警告：无节目数据，检查数据源！"
+              head -50 output/epg.xml
+            else
+              echo "✓ EPG生成成功！"
+              # 生成压缩包
+              gzip -c output/epg.xml > output/epg.gz
+              echo "压缩包大小: $(du -h output/epg.gz)"
+            fi
+          else
+            echo "❌ EPG生成失败，终止任务"
+            exit 1
+          fi
+
+      - name: Commit and push changes
+        run: |
+          # 配置git用户信息
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # 添加output目录下的文件
+          git add output/epg.xml output/epg.gz
+          
+          # 无变更则跳过提交
+          if git diff --staged --quiet; then
+            echo "ℹ️  无EPG文件更新，跳过提交"
+          else
+            git commit -m "📺 EPG自动更新 - $(date +'%Y-%m-%d %H:%M:%S %Z')"
+            git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:${{ github.ref_name }}
+            echo "✓ 提交推送成功！"
+          fi
