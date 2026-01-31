@@ -25,8 +25,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'  # 降级为3.10，兼容原仓库依赖
-          cache: 'pip'            # 缓存依赖，后续执行更快
-          cache-dependency-path: 'dummy.txt'  # 绕过自动检测requirements.txt
+          cache: ''  # 完全禁用自动缓存，彻底解决requirements.txt报错
 
       - name: Install dependencies
         run: |
@@ -81,4 +80,20 @@ jobs:
             exit 1
           fi
 
-      -
+      - name: Commit and push changes
+        run: |
+          # 配置git用户信息
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # 添加output目录下的文件
+          git add output/epg.xml output/epg.gz
+          
+          # 无变更则跳过提交
+          if git diff --staged --quiet; then
+            echo "ℹ️  无EPG文件更新，跳过提交"
+          else
+            git commit -m "📺 EPG自动更新 - $(date +'%Y-%m-%d %H:%M:%S %Z')"
+            git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:${{ github.ref_name }}
+            echo "✓ 提交推送成功！"
+          fi
