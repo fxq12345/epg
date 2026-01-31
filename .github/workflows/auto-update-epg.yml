@@ -2,9 +2,8 @@ name: 'Auto Update EPG'
 
 on:
   schedule:
-    # 每天0点和12点自动运行（UTC时间，对应北京时间8点和20点）
     - cron: '0 0,12 * * *'
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
   push:
     branches:
       - master
@@ -12,9 +11,9 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 10  # 延长超时时间到10分钟
+    timeout-minutes: 10
     permissions:
-      contents: write  # 允许提交更新后的EPG文件
+      contents: write
 
     steps:
       - name: Checkout code
@@ -34,7 +33,7 @@ jobs:
 
       - name: Run EPG update
         env:
-          PYTHONUNBUFFERED: 1  # 确保实时输出日志
+          PYTHONUNBUFFERED: 1
         run: |
           python merge.py
 
@@ -42,6 +41,7 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          git pull --rebase origin master
           git add -A
           git commit -m "Auto update EPG data" || echo "No changes to commit"
           git push
