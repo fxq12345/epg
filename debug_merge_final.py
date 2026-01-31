@@ -6,6 +6,9 @@ import time
 print("=== 开始终极调试 merge.py ===")
 sys.stdout.flush()
 
+# 定义超时时间（秒）
+TIMEOUT = 300
+
 # 定义实时输出的线程
 def stream_output(process):
     for line in iter(process.stdout.readline, b''):
@@ -31,12 +34,23 @@ try:
     output_thread = threading.Thread(target=stream_output, args=(process,))
     output_thread.start()
 
-    # 等待进程完成
-    process.wait()
+    # 等待进程完成或超时
+    start_time = time.time()
+    while process.poll() is None:
+        if time.time() - start_time > TIMEOUT:
+            print(f"⚠️  执行超时（{TIMEOUT}秒），正在终止进程...")
+            sys.stdout.flush()
+            process.kill()
+            break
+        time.sleep(1)
+
+    # 等待输出线程结束
     output_thread.join()
 
     if process.returncode == 0:
         print("✅ merge.py 执行完成，退出码 0")
+    elif process.returncode == -9:
+        print("❌ merge.py 执行超时，已被终止")
     else:
         print(f"❌ merge.py 执行失败，退出码 {process.returncode}")
 
