@@ -11,9 +11,9 @@ TIMEOUT = 300
 
 # 定义实时输出的线程
 def stream_output(process):
-    for line in iter(process.stdout.readline, b''):
+    for line in iter(process.stdout.readline, ''):
         if line:
-            print(line.decode('utf-8'), end='')
+            print(line, end='')
             sys.stdout.flush()
 
 # 直接用 subprocess 运行 merge.py，模拟用户操作
