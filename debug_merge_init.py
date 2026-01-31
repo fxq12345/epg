@@ -1,0 +1,39 @@
+name: 'Auto Update EPG'
+
+on:
+  schedule:
+    - cron: '0 0,12 * * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests lxml beautifulsoup4 xmltodict aiohttp tqdm opencc-python-reimplemented
+
+      - name: Debug merge.py initialization
+        env:
+          PYTHONUNBUFFERED: 1
+          PYTHONFAULTHANDLER: 1
+        run: |
+          timeout 300s python debug_merge_init.py
