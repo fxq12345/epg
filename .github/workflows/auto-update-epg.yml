@@ -22,10 +22,9 @@ jobs:
           fetch-depth: 1    # 浅克隆，加快速度
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4  # 降级到v4版本，彻底解决缓存检查问题
         with:
           python-version: '3.10'  # 降级为3.10，兼容原仓库依赖
-          cache: ''  # 完全禁用自动缓存，彻底解决requirements.txt报错
 
       - name: Install dependencies
         run: |
