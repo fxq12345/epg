@@ -32,7 +32,7 @@ jobs:
           if [ -f "requirements.txt" ]; then
             pip install -r requirements.txt
           else
-            pip install requests lxml beautifulsoup4 xmltodict
+            pip install requests lxml beautifulsoup4 xmltodict aiohttp
           fi
 
       - name: Generate EPG with enhanced error capture
@@ -40,13 +40,11 @@ jobs:
           echo "=== 开始生成EPG ==="
           rm -f output/epg.xml output/epg.gz 2>/dev/null || true
           
-          # 增强错误捕获：即使脚本失败也保留完整输出
           python merge.py > merge_output.log 2>&1 || echo "脚本执行失败，但已保存日志"
           
           echo "=== 脚本完整输出日志 ==="
           cat merge_output.log || echo "无日志输出"
           
-          # 检查目录内容
           echo "=== 当前目录内容 ==="
           ls -la
           echo "=== output目录内容 ==="
