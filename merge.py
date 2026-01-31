@@ -3,8 +3,9 @@ import gzip
 from lxml import etree
 import xmltodict
 import json
+import os
 
-# 替换为zyrf999/myEPG仓库里的稳定源
+# 使用zyrf999/myEPG仓库里的稳定源
 EPG_SOURCES = [
     "https://epg.27481716.xyz/epg.xml",
     "https://e.erw.cc/all.xml",
@@ -83,10 +84,15 @@ def main():
     # 生成最终XML
     xml_str = etree.tostring(tv, encoding='utf-8', pretty_print=True, xml_declaration=True).decode('utf-8')
 
-    # 保存到文件
+    # 保存为未压缩的XML文件
     with open('epg.xml', 'w', encoding='utf-8') as f:
         f.write(xml_str)
     print("✅ EPG文件已保存为 epg.xml")
+
+    # 保存为gzip压缩文件
+    with gzip.open('epg.gz', 'wb') as f:
+        f.write(xml_str.encode('utf-8'))
+    print("✅ 压缩版EPG文件已保存为 epg.gz")
 
 if __name__ == "__main__":
     main()
