@@ -11,7 +11,7 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     permissions:
       contents: write
 
@@ -38,12 +38,13 @@ jobs:
       - name: Generate EPG with enhanced error capture
         env:
           PYTHONUNBUFFERED: 1
+          PYTHONFAULTHANDLER: 1
         run: |
           echo "=== 开始生成EPG ==="
           mkdir -p output
           rm -f output/epg.xml output/epg.gz 2>/dev/null || true
           
-          python merge.py > merge_output.log 2>&1 || echo "脚本执行失败，但已保存日志"
+          timeout 300s python merge.py > merge_output.log 2>&1 || echo "脚本执行超时或失败，但已保存日志"
           
           echo "=== 脚本完整输出日志 ==="
           cat merge_output.log || echo "无日志输出"
