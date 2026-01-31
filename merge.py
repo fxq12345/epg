@@ -1,11 +1,26 @@
-# 在抓取和解析EPG源的函数中，添加错误处理
+import requests
+import gzip
+from lxml import etree
+import xmltodict
+import json
+
+# 你的EPG源列表
+EPG_SOURCES = [
+    "https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz",
+    "https://your-second-source.com/epg.xml",
+    "https://your-third-source.com/epg.gz",
+    "https://your-fourth-source.com/epg.xml",
+    "https://your-fifth-source.com/epg.gz"
+]
+
 def fetch_and_parse_epg(url):
+    """抓取并解析单个EPG源"""
     try:
         print(f"正在尝试抓取: {url}")
         response = requests.get(url, timeout=30)
-        response.raise_for_status()  # 检查HTTP错误
+        response.raise_for_status()
 
-        # 尝试解压缩
+        # 处理gzip压缩文件
         if url.endswith('.gz'):
             try:
                 data = gzip.decompress(response.content)
@@ -16,31 +31,63 @@ def fetch_and_parse_epg(url):
             data = response.content
 
         # 解析XML
-        epg_data = parse_xml(data)
-        return epg_data
+        root = etree.fromstring(data)
+        return root
 
-    except requests.exceptions.RequestException as e:
-        print(f"❌ 抓取 {url} 失败: {e}，跳过该源")
-        return None
     except Exception as e:
         print(f"❌ 处理 {url} 时出错: {e}，跳过该源")
         return None
 
-# 在主逻辑中，过滤掉无效的EPG源
+def merge_epg_sources(sources):
+    """合并多个EPG源"""
+    # 创建基础XML结构
+    tv = etree.Element("tv", {"generator-info-name": "EPG Merger"})
+    channel_ids = set()
+    programme_ids = set()
+
+    for source in sources:
+        if source is None:
+            continue
+
+        # 合并频道信息
+        for channel in source.findall(".//channel"):
+            channel_id = channel.get("id")
+            if channel_id not in channel_ids:
+                channel_ids.add(channel_id)
+                tv.append(channel)
+
+        # 合并节目信息
+        for programme in source.findall(".//programme"):
+            prog_id = f"{programme.get('channel')}-{programme.get('start')}-{programme.get('stop')}"
+            if prog_id not in programme_ids:
+                programme_ids.add(prog_id)
+                tv.append(programme)
+
+    return tv
+
 def main():
-    epg_sources = [...]  # 你的EPG源列表
-    all_epg_data = []
+    print("=== 开始EPG合并 ===")
 
-    for url in epg_sources:
-        epg_data = fetch_and_parse_epg(url)
-        if epg_data:
-            all_epg_data.append(epg_data)
-        else:
-            print(f"⚠️  跳过无效的EPG源: {url}")
+    # 抓取所有EPG源
+    epg_sources = [fetch_and_parse_epg(url) for url in EPG_SOURCES]
+    epg_sources = [src for src in epg_sources if src is not None]
 
-    # 合并有效的EPG数据
-    if all_epg_data:
-        merge_epg(all_epg_data)
-        print("✅ EPG更新完成")
+    if not epg_sources:
+        print("⚠️  没有有效的EPG源，生成基础EPG文件")
+        tv = etree.Element("tv", {"generator-info-name": "EPG Merger"})
     else:
-        print("❌ 没有有效的EPG源，更新失败")
+        # 合并EPG源
+        tv = merge_epg_sources(epg_sources)
+        print(f"✅ 成功合并 {len(epg_sources)} 个EPG源")
+        print(f"📺 共 {len(tv.findall('.//channel'))} 个频道，{len(tv.findall('.//programme'))} 个节目")
+
+    # 生成最终XML
+    xml_str = etree.tostring(tv, encoding='utf-8', pretty_print=True, xml_declaration=True).decode('utf-8')
+
+    # 保存到文件
+    with open('epg.xml', 'w', encoding='utf-8') as f:
+        f.write(xml_str)
+    print("✅ EPG文件已保存为 epg.xml")
+
+if __name__ == "__main__":
+    main()
