@@ -32,12 +32,13 @@ jobs:
           if [ -f "requirements.txt" ]; then
             pip install -r requirements.txt
           else
-            pip install requests lxml beautifulsoup4 xmltodict aiohttp
+            pip install requests lxml beautifulsoup4 xmltodict aiohttp tqdm
           fi
 
       - name: Generate EPG with enhanced error capture
         run: |
           echo "=== 开始生成EPG ==="
+          mkdir -p output
           rm -f output/epg.xml output/epg.gz 2>/dev/null || true
           
           python merge.py > merge_output.log 2>&1 || echo "脚本执行失败，但已保存日志"
@@ -89,4 +90,3 @@ jobs:
           else
             echo "⚠️  EPG文件不存在，跳过提交"
           fi
-
