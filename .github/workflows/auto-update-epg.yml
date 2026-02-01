@@ -1,49 +1,31 @@
-name: 'Auto Update EPG'
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-on:
-  schedule:
-    - cron: '0 0,12 * * *'
-  workflow_dispatch:
-  push:
-    branches:
-      - master
+# 创建带重试机制的会话
+def create_retry_session(retries=2, backoff_factor=1, status_forcelist=(500, 502, 503, 504)):
+    session = requests.Session()
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    return session
 
-jobs:
-  update:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests lxml beautifulsoup4 xmltodict aiohttp tqdm opencc-python-reimplemented
-
-      - name: Run EPG update (强制重新生成两个文件)
-        env:
-          PYTHONUNBUFFERED: 1
-        run: |
-          # 删除旧文件，确保重新生成
-          rm -f output/epg.xml output/epg.gz
-          python merge.py
-
-      - name: Commit and push all changes
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          # 强制添加所有文件（包括可能未被识别的更新）
-          git add output/*
-          git commit -m "Auto update EPG data: $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
-          git push origin master --force
+# 处理第一个源（epg.27481716.xyz）
+def fetch_first_source():
+    url = "https://epg.27481716.xyz/epg.xml"
+    session = create_retry_session(retries=2)
+    try:
+        response = session.get(url, timeout=30)  # 超时时间改为30秒
+        response.raise_for_status()
+        print(f"✅ 第一个源抓取成功")
+        return response.content
+    except Exception as e:
+        print(f"❌ 第一个源抓取失败（已重试2次）：{str(e)}")
+        return None
