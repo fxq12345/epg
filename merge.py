@@ -7,7 +7,7 @@ from lxml import etree
 # ===================== 配置区 =====================
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
-
+# 加入动态时间戳（让EPG文件内容每次不同，触发酷9更新）
 XMLTV_DECLARE = f'<?xml version="1.0" encoding="UTF-8"?><tv generator-info-name="fxq12345-epg-merge" generator-info-url="https://github.com/fxq12345/epg" last-update="{time.strftime("%Y%m%d%H%M%S")}">'
 # ==================================================
 
