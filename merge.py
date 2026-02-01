@@ -6,27 +6,33 @@ from lxml import etree
 # ===================== 配置区 =====================
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
-# 修复XML声明的格式（去掉多余换行）
 XMLTV_DECLARE = '<?xml version="1.0" encoding="UTF-8"?><tv generator-info-name="fxq12345-epg-merge" generator-info-url="https://github.com/fxq12345/epg">'
 # ==================================================
 
 def read_epg_sources():
+    """读取config.txt（自动跳过注释/空行）"""
     if not os.path.exists(CONFIG_FILE):
         print(f"❌ 未找到{CONFIG_FILE}")
         exit(1)
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-        sources = [line.strip() for line in f if line.strip()]
+        sources = []
+        for line in f:
+            line = line.strip()
+            # 跳过注释行（以#开头）和空行
+            if line and not line.startswith("#"):
+                sources.append(line)
     if len(sources) < 5:
-        print(f"⚠️ {CONFIG_FILE}中仅找到{len(sources)}个源")
+        print(f"⚠️ {CONFIG_FILE}中仅找到{len(sources)}个有效源")
     return sources[:5]
 
-def init_output_dir():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    for f in os.listdir(OUTPUT_DIR):
-        os.remove(os.path.join(OUTPUT_DIR, f))
+def decompress_gz(content):
+    """自动解压.gz内容"""
+    try:
+        return gzip.decompress(content).decode("utf-8")
+    except:
+        return content.decode("utf-8")  # 不是gz则直接返回
 
 def fetch_and_merge_epg(sources):
-    # 修复XML根节点初始化
     root = etree.fromstring(f"{XMLTV_DECLARE}</tv>".encode("utf-8"))
     channel_ids = set()
 
@@ -35,16 +41,22 @@ def fetch_and_merge_epg(sources):
         try:
             resp = requests.get(source, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
             resp.raise_for_status()
-            resp.encoding = "utf-8"
             
-            source_tree = etree.fromstring(resp.text.encode("utf-8"))
+            # 自动解压.gz源
+            if source.endswith(".gz"):
+                content = decompress_gz(resp.content)
+            else:
+                content = resp.text
             
-            # 合并频道
+            # 解析XML
+            source_tree = etree.fromstring(content.encode("utf-8"))
+            
+            # 合并频道（去重）
             for channel in source_tree.xpath("//channel"):
                 cid = channel.get("id")
                 if cid not in channel_ids:
                     channel_ids.add(cid)
-                    root.insert(0, channel)  # 插入到<tv>标签内
+                    root.insert(0, channel)
             
             # 合并节目单
             for programme in source_tree.xpath("//programme"):
@@ -59,8 +71,12 @@ def fetch_and_merge_epg(sources):
     if len(root) == 0:
         print("❌ 无有效EPG数据")
         exit(1)
-    # 生成完整XML内容
     return etree.tostring(root, encoding="utf-8", pretty_print=True).decode("utf-8")
+
+def init_output_dir():
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    for f in os.listdir(OUTPUT_DIR):
+        os.remove(os.path.join(OUTPUT_DIR, f))
 
 def save_epg(xml_content):
     xml_path = os.path.join(OUTPUT_DIR, "epg.xml")
