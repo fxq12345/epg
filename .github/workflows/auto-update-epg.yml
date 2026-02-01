@@ -13,16 +13,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write  # 确保Actions有提交权限
+      contents: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 拉取完整仓库历史，避免提交冲突
+          fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5  # 升级到最新版，兼容性更好
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
@@ -31,19 +31,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests lxml beautifulsoup4 xmltodict aiohttp tqdm opencc-python-reimplemented
 
-      - name: Run EPG update
+      - name: Run EPG update (强制重新生成两个文件)
         env:
           PYTHONUNBUFFERED: 1
         run: |
+          # 删除旧文件，确保重新生成
+          rm -f output/epg.xml output/epg.gz
           python merge.py
 
-      - name: Commit and push changes
+      - name: Commit and push all changes
         run: |
-          # 使用GitHub官方Bot身份，避免权限问题
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add output/epg.xml output/epg.gz
-          # 增加时间戳，方便区分更新记录
+          # 强制添加所有文件（包括可能未被识别的更新）
+          git add output/*
           git commit -m "Auto update EPG data: $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
-          # 明确推送至master分支
           git push origin master --force
