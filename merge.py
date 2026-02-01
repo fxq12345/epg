@@ -3,13 +3,31 @@ import gzip
 import requests
 import time
 from lxml import etree
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # ===================== 配置区 =====================
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
-# 加入动态时间戳（让EPG文件内容每次不同，触发酷9更新）
+
 XMLTV_DECLARE = f'<?xml version="1.0" encoding="UTF-8"?><tv generator-info-name="fxq12345-epg-merge" generator-info-url="https://github.com/fxq12345/epg" last-update="{time.strftime("%Y%m%d%H%M%S")}">'
 # ==================================================
+
+def create_retry_session(retries=2, backoff_factor=1):
+    """创建带重试机制的请求会话"""
+    session = requests.Session()
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,  # 重试间隔：1s, 2s, 4s...
+        status_forcelist=(500, 502, 503, 504, 408)  # 需要重试的状态码
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    session.headers.update({"User-Agent": "Mozilla/5.0"})
+    return session
 
 def read_epg_sources():
     if not os.path.exists(CONFIG_FILE):
@@ -38,7 +56,14 @@ def fetch_and_merge_epg(sources):
     for idx, source in enumerate(sources, 1):
         print(f"[{idx}/{len(sources)}] 抓取源：{source}")
         try:
-            resp = requests.get(source, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            # 第一个源单独处理：延长超时+自动重试
+            if idx == 1:
+                session = create_retry_session(retries=2)
+                resp = session.get(source, timeout=30)  # 超时改为30秒
+            else:
+                # 其他源保持原有逻辑
+                resp = requests.get(source, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            
             resp.raise_for_status()
             
             if source.endswith(".gz"):
