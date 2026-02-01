@@ -19,6 +19,32 @@ CHANNEL_PRIORITY = [
     ("央视", ["CCTV"]),
     ("其他卫视", ["卫视", "浙江", "湖南", "江苏", "东方", "北京", "安徽", "广东", "河南", "深圳"])
 ]
+# 酷9专用ID映射表（数字ID→名称ID）
+COOL9_ID_MAPPING = {
+    "89": "山东卫视",
+    "221": "山东教育",
+    "381": "山东新闻",
+    "382": "山东农科",
+    "383": "山东齐鲁",
+    "384": "山东文旅",
+    "1": "CCTV1",
+    "2": "CCTV2",
+    "3": "CCTV3",
+    "4": "CCTV4",
+    "5": "CCTV5",
+    "6": "CCTV6",
+    "7": "CCTV7",
+    "8": "CCTV8",
+    "9": "CCTV9",
+    "10": "CCTV10",
+    "11": "CCTV11",
+    "12": "CCTV12",
+    "13": "CCTV13",
+    "14": "CCTV14",
+    "15": "CCTV15",
+    "16": "CCTV16",
+    "501": "CCTV5+",
+}
 # ==================================================
 
 def read_epg_sources():
@@ -62,7 +88,7 @@ def fetch_epg_source(source, retry=0):
             return fetch_epg_source(source, retry+1)
         else:
             print(f"❌ 源失效，跳过：{source} | 错误：{str(e)}")
-            return None  # 失效源直接跳过，不终止程序
+            return None
 
 def check_core_programs(channel_ids, programs):
     core_categories = {
@@ -84,7 +110,7 @@ def check_core_programs(channel_ids, programs):
         print(f"   - {cat_name}：{core_categories[cat_name]}个 | 有节目：{core_categories[f'{cat_name}有节目']}个")
     if (core_categories["山东本地"] == 0 or core_categories["央视"] == 0 or core_categories["其他卫视"] == 0):
         print("❌ 核心频道类别缺失，跳过检测（仅本次）")
-        return True  # 临时跳过，避免程序终止
+        return True
     if (core_categories["山东本地有节目"] / core_categories["山东本地"] < 0.8 or
         core_categories["央视有节目"] / core_categories["央视"] < 0.8 or
         core_categories["其他卫视有节目"] / core_categories["其他卫视"] < 0.8):
@@ -99,20 +125,27 @@ def sort_channels(channels):
         cat_channels = []
         for channel in channels:
             cid = channel.get("id")
+            # 酷9专用：数字ID映射为名称ID
+            if cid in COOL9_ID_MAPPING:
+                cid = COOL9_ID_MAPPING[cid]
             if cid in channel_ids:
                 continue
             display_names = channel.xpath(".//display-name/text()")
             channel_name = display_names[0] if display_names else cid
             if any(keyword in channel_name or keyword in cid for keyword in cat_keywords):
                 channel_ids.add(cid)
+                channel.set("id", cid)  # 更新为酷9适配的ID
                 cat_channels.append(channel)
         sorted_channels.extend(cat_channels)
         print(f"✅ {cat_name}：{len(cat_channels)}个")
     other_channels = []
     for channel in channels:
         cid = channel.get("id")
+        if cid in COOL9_ID_MAPPING:
+            cid = COOL9_ID_MAPPING[cid]
         if cid not in channel_ids:
             channel_ids.add(cid)
+            channel.set("id", cid)
             other_channels.append(channel)
     sorted_channels.extend(other_channels)
     print(f"✅ 其他频道：{len(other_channels)}个")
@@ -135,14 +168,18 @@ def fetch_and_merge_epg(sources):
                 source_tree = etree.fromstring(content.encode("utf-8"))
                 sources_channels = source_tree.xpath("//channel")
                 for channel in sources_channels:
-                    cid = channel.get("id", f"channel_{idx}_{len(channel_ids)}").replace("CCTV", "CCTV-")
+                    cid = channel.get("id", f"channel_{idx}_{len(channel_ids)}")
+                    if cid in COOL9_ID_MAPPING:
+                        cid = COOL9_ID_MAPPING[cid]
                     if cid not in channel_ids:
                         channel_ids.add(cid)
                         channel.set("id", cid)
                         all_channels.append(channel)
                 sources_programs = source_tree.xpath("//programme")
                 for program in sources_programs:
-                    prog_channel = program.get("channel", "").replace("CCTV", "CCTV-")
+                    prog_channel = program.get("channel", "")
+                    if prog_channel in COOL9_ID_MAPPING:
+                        prog_channel = COOL9_ID_MAPPING[prog_channel]
                     program.set("channel", prog_channel)
                     all_programs.append(program)
                 print(f"✅ 成功：频道{len(sources_channels)}个 | 累计频道{len(channel_ids)}个 | 累计节目{len(all_programs)}个")
@@ -189,7 +226,7 @@ def save_epg(xml_content):
     print(f"📝 保存GZIP文件：{gz_path}（{os.path.getsize(gz_path)}字节）")
 
 if __name__ == "__main__":
-    print("=== 开始生成EPG节目指南（山东+央视+卫视优先） ===")
+    print("=== 开始生成EPG节目指南（酷9专用） ===")
     start_time = time.time()
     sources = read_epg_sources()
     init_output_dir()
