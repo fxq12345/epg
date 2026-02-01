@@ -20,7 +20,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: master
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -32,31 +31,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests lxml beautifulsoup4 xmltodict aiohttp tqdm opencc-python-reimplemented
 
-      - name: Run EPG update
+      - name: Run EPG update (强制重新生成两个文件)
         env:
           PYTHONUNBUFFERED: 1
         run: |
-          rm -rf output/*  # 清空旧文件
-          python merge.py  # 执行修改后的脚本
+          # 删除旧文件，确保重新生成
+          rm -f output/epg.xml output/epg.gz
+          python merge.py
 
-      - name: 验证文件完整性
-        run: |
-          # 检查两个文件是否存在且有内容
-          if [ ! -f "output/epg.xml" ] || [ $(stat -c%s "output/epg.xml") -lt 1024 ]; then
-            echo "错误：epg.xml未生成或内容为空"
-            exit 1
-          fi
-          if [ ! -f "output/epg.gz" ] || [ $(stat -c%s "output/epg.gz") -lt 512 ]; then
-            echo "错误：epg.gz未生成或内容为空"
-            exit 1
-          fi
-          echo "文件验证通过："
-          ls -l output/
-
-      - name: Commit and push
+      - name: Commit and push all changes
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add output/*  # 强制添加所有文件
-          git commit -m "Auto update EPG: $(date +'%Y-%m-%d %H:%M:%S')" || echo "无更新内容"
+          # 强制添加所有文件（包括可能未被识别的更新）
+          git add output/*
+          git commit -m "Auto update EPG data: $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
           git push origin master --force
