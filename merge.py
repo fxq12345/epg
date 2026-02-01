@@ -1,16 +1,17 @@
 import os
 import gzip
 import requests
+import time
 from lxml import etree
 
 # ===================== 配置区 =====================
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
-XMLTV_DECLARE = '<?xml version="1.0" encoding="UTF-8"?><tv generator-info-name="fxq12345-epg-merge" generator-info-url="https://github.com/fxq12345/epg">'
+# 加入动态时间戳（让EPG文件内容每次不同，触发酷9更新）
+XMLTV_DECLARE = f'<?xml version="1.0" encoding="UTF-8"?><tv generator-info-name="fxq12345-epg-merge" generator-info-url="https://github.com/fxq12345/epg" last-update="{time.strftime("%Y%m%d%H%M%S")}">'
 # ==================================================
 
 def read_epg_sources():
-    """读取config.txt（自动跳过注释/空行）"""
     if not os.path.exists(CONFIG_FILE):
         print(f"❌ 未找到{CONFIG_FILE}")
         exit(1)
@@ -18,7 +19,6 @@ def read_epg_sources():
         sources = []
         for line in f:
             line = line.strip()
-            # 跳过注释行（以#开头）和空行
             if line and not line.startswith("#"):
                 sources.append(line)
     if len(sources) < 5:
@@ -26,11 +26,10 @@ def read_epg_sources():
     return sources[:5]
 
 def decompress_gz(content):
-    """自动解压.gz内容"""
     try:
         return gzip.decompress(content).decode("utf-8")
     except:
-        return content.decode("utf-8")  # 不是gz则直接返回
+        return content.decode("utf-8")
 
 def fetch_and_merge_epg(sources):
     root = etree.fromstring(f"{XMLTV_DECLARE}</tv>".encode("utf-8"))
@@ -42,23 +41,19 @@ def fetch_and_merge_epg(sources):
             resp = requests.get(source, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
             resp.raise_for_status()
             
-            # 自动解压.gz源
             if source.endswith(".gz"):
                 content = decompress_gz(resp.content)
             else:
                 content = resp.text
             
-            # 解析XML
             source_tree = etree.fromstring(content.encode("utf-8"))
             
-            # 合并频道（去重）
             for channel in source_tree.xpath("//channel"):
                 cid = channel.get("id")
                 if cid not in channel_ids:
                     channel_ids.add(cid)
                     root.insert(0, channel)
             
-            # 合并节目单
             for programme in source_tree.xpath("//programme"):
                 root.append(programme)
 
