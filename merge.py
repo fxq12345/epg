@@ -1,120 +1,95 @@
-import requests
-import gzip
-from lxml import etree
 import os
+import gzip
+import requests
+from lxml import etree
 
-def read_config(config_file='config.txt'):
-    """从配置文件读取EPG源链接"""
-    sources = []
-    try:
-        with open(config_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    sources.append(line)
-        print(f"✅ 从 {config_file} 读取到 {len(sources)} 个EPG源")
-        return sources
-    except Exception as e:
-        print(f"❌ 读取配置文件出错: {e}")
-        return []
+# ===================== 配置区 =====================
+# 1. 从config.txt读取EPG源
+CONFIG_FILE = "config.txt"
+# 2. 输出目录
+OUTPUT_DIR = "output"
+# 3. XMLTV声明
+XMLTV_DECLARE = '''<?xml version="1.0" encoding="UTF-8"?>
+<tv generator-info-name="fxq12345-epg-merge" generator-info-url="https://github.com/fxq12345/epg">
+'''
+# ==================================================
 
-def fetch_and_parse_epg(url):
-    """抓取并解析单个EPG源"""
-    try:
-        print(f"正在尝试抓取: {url}")
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
+def read_epg_sources():
+    """从config.txt读取EPG源（每行一个）"""
+    if not os.path.exists(CONFIG_FILE):
+        print(f"❌ 未找到{CONFIG_FILE}")
+        exit(1)
+    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        sources = [line.strip() for line in f if line.strip()]
+    if len(sources) < 5:
+        print(f"⚠️ {CONFIG_FILE}中仅找到{len(sources)}个源（建议5个）")
+    return sources[:5]  # 仅读取前5个源
 
-        if url.endswith('.gz'):
-            try:
-                data = gzip.decompress(response.content)
-            except gzip.BadGzipFile:
-                print(f"⚠️  {url} 不是有效的gzip文件，跳过该源")
-                return None
-        else:
-            data = response.content
+def init_output_dir():
+    """初始化输出目录"""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    # 清空旧文件
+    for f in os.listdir(OUTPUT_DIR):
+        os.remove(os.path.join(OUTPUT_DIR, f))
 
-        root = etree.fromstring(data)
-        return root
+def fetch_and_merge_epg(sources):
+    """抓取并合并EPG源（频道+节目单）"""
+    # 创建XML根节点
+    root = etree.fromstring(XMLTV_DECLARE.encode("utf-8"))
+    channel_ids = set()  # 去重频道ID
 
-    except Exception as e:
-        print(f"❌ 处理 {url} 时出错: {e}，跳过该源")
-        return None
+    for idx, source in enumerate(sources, 1):
+        print(f"[{idx}/{len(sources)}] 抓取源：{source}")
+        try:
+            # 抓取源数据
+            resp = requests.get(source, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            resp.encoding = "utf-8"
+            
+            # 解析XML
+            source_tree = etree.fromstring(resp.text.encode("utf-8"))
+            
+            # 合并频道（去重）
+            for channel in source_tree.xpath("//channel"):
+                cid = channel.get("id")
+                if cid not in channel_ids:
+                    channel_ids.add(cid)
+                    root.append(channel)
+            
+            # 合并节目单
+            for programme in source_tree.xpath("//programme"):
+                root.append(programme)
 
-def merge_epg_sources(sources):
-    """合并多个EPG源"""
-    tv = etree.Element("tv", {"generator-info-name": "EPG Merger"})
-    channel_ids = set()
-    programme_ids = set()
+            print(f"✅ 成功：频道{len(channel_ids)}个 | 节目单{len(root.xpath('//programme'))}个")
 
-    for source in sources:
-        if source is None:
+        except Exception as e:
+            print(f"❌ 失败：{str(e)}")
             continue
 
-        for channel in source.findall(".//channel"):
-            channel_id = channel.get("id")
-            if channel_id not in channel_ids:
-                channel_ids.add(channel_id)
-                tv.append(channel)
+    # 检查是否有有效数据
+    if len(root) == 0:
+        print("❌ 所有源抓取失败，无EPG数据")
+        exit(1)
+    return etree.tostring(root, encoding="utf-8", pretty_print=True).decode("utf-8")
 
-        for programme in source.findall(".//programme"):
-            prog_id = f"{programme.get('channel')}-{programme.get('start')}-{programme.get('stop')}"
-            if prog_id not in programme_ids:
-                programme_ids.add(prog_id)
-                tv.append(programme)
+def save_epg(xml_content):
+    """保存为epg.xml和epg.gz"""
+    # 保存XML
+    xml_path = os.path.join(OUTPUT_DIR, "epg.xml")
+    with open(xml_path, "w", encoding="utf-8") as f:
+        f.write(xml_content)
+    print(f"📝 保存XML：{xml_path}（{os.path.getsize(xml_path)}字节）")
 
-    return tv
-
-def main():
-    print("=== 开始EPG合并 ===")
-
-    # 1. 读取配置文件
-    EPG_SOURCES = read_config()
-    if not EPG_SOURCES:
-        print("❌ 没有可用的EPG源，退出程序")
-        return
-
-    # 2. 抓取所有EPG源
-    epg_sources = [fetch_and_parse_epg(url) for url in EPG_SOURCES]
-    epg_sources = [src for src in epg_sources if src is not None]
-
-    if not epg_sources:
-        print("⚠️  没有有效的EPG源，生成基础EPG文件")
-        tv = etree.Element("tv", {"generator-info-name": "EPG Merger"})
-    else:
-        tv = merge_epg_sources(epg_sources)
-        print(f"✅ 成功合并 {len(epg_sources)} 个EPG源")
-        print(f"📺 共 {len(tv.findall('.//channel'))} 个频道，{len(tv.findall('.//programme'))} 个节目")
-
-    # 3. 生成最终XML
-    xml_str = etree.tostring(tv, encoding='utf-8', pretty_print=True, xml_declaration=True).decode('utf-8')
-    print(f"📝 生成的XML内容大小: {len(xml_str)} 字符")
-
-    # 4. 确保output目录存在
-    os.makedirs('output', exist_ok=True)
-    print(f"📂 确认output目录存在: {os.path.exists('output')}")
-
-    # 5. 保存为未压缩的XML文件
-    xml_path = 'output/epg.xml'
-    with open(xml_path, 'w', encoding='utf-8') as f:
-        f.write(xml_str)
-    if os.path.exists(xml_path):
-        print(f"✅ EPG XML文件已保存为 {xml_path}，文件大小: {os.path.getsize(xml_path)} 字节")
-    else:
-        print(f"❌ 保存 {xml_path} 失败")
-
-    # 6. 保存为gzip压缩文件
-    gz_path = 'output/epg.gz'
-    with gzip.open(gz_path, 'wb') as f:
-        f.write(xml_str.encode('utf-8'))
-    if os.path.exists(gz_path):
-        print(f"✅ EPG GZIP文件已保存为 {gz_path}，文件大小: {os.path.getsize(gz_path)} 字节")
-    else:
-        print(f"❌ 保存 {gz_path} 失败")
-
-    # 7. 最终验证
-    print("=== 生成结果验证 ===")
-    print(f"📁 output目录内容: {os.listdir('output')}")
+    # 保存GZIP压缩包
+    gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
+    with gzip.open(gz_path, "wb") as f:
+        f.write(xml_content.encode("utf-8"))
+    print(f"📝 保存GZIP：{gz_path}（{os.path.getsize(gz_path)}字节）")
 
 if __name__ == "__main__":
-    main()
+    print("=== 开始生成EPG ===")
+    sources = read_epg_sources()
+    init_output_dir()
+    epg_content = fetch_and_merge_epg(sources)
+    save_epg(epg_content)
+    print("=== EPG生成完成 ===")
