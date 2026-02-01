@@ -1,7 +1,7 @@
 # 集众家所长的EPG
 
 ## 使用
-https://github.com/mytv-android/myEPG/raw/refs/heads/master/output/epg.xml
+https://raw.githubusercontent.com/fxq12345/epg/master/output/epg.xml
 https://github.com/mytv-android/myEPG/raw/refs/heads/master/output/epg.gz
 
 或者
