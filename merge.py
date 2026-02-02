@@ -43,10 +43,17 @@ COOL9_ID_MAPPING = {
     "101": "CCTV4K",
     "102": "浙江卫视4K",
     "103": "湖南卫视4K",
-    "104": "东方卫视4K"
+    "104": "东方卫视4K",
+    "105": "北京卫视4K",
+    "106": "广东卫视4K",
+    "107": "深圳卫视4K",
+    "108": "山东卫视4K"
 }
 
 XMLTV_DECLARE = f'<?xml version="1.0" encoding="UTF-8"?><tv generator-info-name="fxq12345-epg-merge" generator-info-url="https://github.com/fxq12345/epg" last-update="{time.strftime("%Y%m%d%H%M%S")}">'
+
+# 国内频道关键词（用于过滤国外频道）
+DOMESTIC_KEYWORDS = ["山东", "CCTV", "卫视", "央视", "中国", "东方", "浙江", "湖南", "江苏", "北京", "安徽", "广东", "河南", "深圳", "四川", "重庆", "天津", "湖北", "江西", "河北", "山西", "陕西", "甘肃", "青海", "宁夏", "新疆", "内蒙古", "辽宁", "吉林", "黑龙江", "上海", "福建", "广西", "海南", "贵州", "云南", "西藏", "香港", "澳门", "台湾"]
 # ==================================================
 
 def read_epg_sources():
@@ -103,10 +110,22 @@ def fetch_and_merge_epg(sources):
             
             source_tree = etree.fromstring(content.encode("utf-8", errors="ignore"))
             
+            # 新增：统计当前源的山东频道数量
+            shandong_count = 0
+
             for channel in source_tree.xpath("//channel"):
                 cid = channel.get("id").strip().replace(" ", "_")
                 channel_name = channel.xpath(".//display-name/text()")[0].strip() if channel.xpath(".//display-name/text()") else ""
                 if cid in channel_ids:
+                    continue
+
+                # 新增：过滤国外频道
+                is_domestic = False
+                for kw in DOMESTIC_KEYWORDS:
+                    if kw in channel_name:
+                        is_domestic = True
+                        break
+                if not is_domestic:
                     continue
 
                 # 按新的优先级规则分类
@@ -117,6 +136,8 @@ def fetch_and_merge_epg(sources):
                             priority_channels[cat].append(channel)
                             channel_ids.add(cid)
                             is_priority = True
+                            if kw == "山东":
+                                shandong_count += 1
                             break
                     if is_priority:
                         break
@@ -131,7 +152,7 @@ def fetch_and_merge_epg(sources):
                     programme.set("channel", COOL9_ID_MAPPING[channel_id])
                 root.append(programme)
 
-            print(f"✅ 成功：频道{len(channel_ids)}个 | 节目单{len(root.xpath('//programme'))}个")
+            print(f"✅ 成功：频道{len(channel_ids)}个 | 山东本地频道{shandong_count}个 | 节目单{len(root.xpath('//programme'))}个")
 
         except Exception as e:
             print(f"❌ 失败：{str(e)}（网络波动或源失效，已跳过）")
