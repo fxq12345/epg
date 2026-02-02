@@ -1,12 +1,10 @@
-
-
 name: Gitee Auto Update EPG
 on:
   schedule:
     - cron: '0 0,12 * * *'  # 每天0点、12点自动更新
   workflow_dispatch:  # 手动触发
   push:
-    branches: [ main ]  # 推送代码时触发
+    branches: [ master ]  # 统一为master分支
 
 jobs:
   build:
@@ -16,15 +14,22 @@ jobs:
       contents: write  # 允许提交文件
 
     steps:
+      - name: 配置Git网络稳定性
+        run: |
+          git config --global http.retry 5
+          git config --global http.lowSpeedLimit 1000
+          git config --global http.lowSpeedTime 60
+
       - name: 拉取代码
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: master  # 明确拉取master分支
+          fetch-depth: 1
 
       - name: 设置Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'  # 稳定版本，兼容所有依赖
+          python-version: '3.10'
 
       - name: 安装依赖
         run: |
@@ -47,8 +52,8 @@ jobs:
 
       - name: 提交更新
         run: |
-          git config --local user.email "gitee-actions@oschina.cn"
-          git config --local user.name "Gitee Actions"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
           git add output/*
           git commit -m "Auto update EPG: $(date +'%Y-%m-%d %H:%M:%S')" || echo "无更新"
-          git push origin main --force
+          git push origin master --force
