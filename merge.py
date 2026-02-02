@@ -10,6 +10,8 @@ from urllib3.util.retry import Retry
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
 XMLTV_DECLARE = f'<?xml version="1.0" encoding="UTF-8"?><tv generator-info-name="fxq12345-epg-merge" generator-info-url="https://github.com/fxq12345/epg" last-update="{time.strftime("%Y%m%d%H%M%S")}">'
+# 优先频道关键词（按优先级排序）
+PRIORITY_KEYWORDS = ["山东", "央视", "卫视"]
 # ==================================================
 
 def read_epg_sources():
@@ -35,12 +37,16 @@ def decompress_gz(content):
 def fetch_and_merge_epg(sources):
     root = etree.fromstring(f"{XMLTV_DECLARE}</tv>".encode("utf-8"))
     channel_ids = set()
-    # 配置请求重试
+    # 按优先级分类存储频道
+    priority_channels = {kw: [] for kw in PRIORITY_KEYWORDS}
+    other_channels = []
+
+    # 增强网络重试与超时配置
     session = requests.Session()
     retry_strategy = Retry(
-        total=3,
-        backoff_factor=1,
-        status_forcelist=[429, 500, 502, 503, 504]
+        total=5,  # 重试5次
+        backoff_factor=2,  # 重试间隔：2s、4s、8s...
+        status_forcelist=[429, 500, 502, 503, 504]  # 针对这些状态码重试
     )
     session.mount("http://", HTTPAdapter(max_retries=retry_strategy))
     session.mount("https://", HTTPAdapter(max_retries=retry_strategy))
@@ -50,7 +56,7 @@ def fetch_and_merge_epg(sources):
         try:
             resp = session.get(
                 source,
-                timeout=15,
+                timeout=30,  # 超时延长至30秒
                 headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
             )
             resp.raise_for_status()
@@ -63,19 +69,43 @@ def fetch_and_merge_epg(sources):
             source_tree = etree.fromstring(content.encode("utf-8", errors="ignore"))
             
             for channel in source_tree.xpath("//channel"):
-                cid = channel.get("id")
-                if cid not in channel_ids:
+                cid = channel.get("id").strip().replace(" ", "_")
+                # 获取频道名称（取第一个display-name）
+                channel_name = channel.xpath(".//display-name/text()")[0].strip() if channel.xpath(".//display-name/text()") else ""
+                if cid in channel_ids:
+                    continue
+
+                # 按关键词分类
+                is_priority = False
+                for kw in PRIORITY_KEYWORDS:
+                    if kw in channel_name:
+                        priority_channels[kw].append(channel)
+                        channel_ids.add(cid)
+                        is_priority = True
+                        break
+                if not is_priority:
+                    other_channels.append(channel)
                     channel_ids.add(cid)
-                    root.insert(0, channel)
             
+            # 合并节目单
             for programme in source_tree.xpath("//programme"):
                 root.append(programme)
 
             print(f"✅ 成功：频道{len(channel_ids)}个 | 节目单{len(root.xpath('//programme'))}个")
 
         except Exception as e:
-            print(f"❌ 失败：{str(e)}")
+            print(f"❌ 失败：{str(e)}（网络波动或源失效，已跳过）")
             continue
+
+    # 按优先级插入频道（山东→央视→卫视→其他）
+    insert_pos = 0
+    for kw in PRIORITY_KEYWORDS:
+        for channel in priority_channels[kw]:
+            root.insert(insert_pos, channel)
+            insert_pos += 1
+    for channel in other_channels:
+        root.insert(insert_pos, channel)
+        insert_pos += 1
 
     if len(root) == 0:
         print("❌ 无有效EPG数据")
