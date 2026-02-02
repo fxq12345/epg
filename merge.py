@@ -29,31 +29,35 @@ logging.basicConfig(
     ]
 )
 
-# 核心频道配置（山东本地→央视→其他卫视优先级）
+# 核心频道配置（新增潍坊本地分类）
 CHANNEL_PRIORITY = [
-    ("山东本地", ["山东"]),
+    ("山东本地", ["山东", "山东少儿"]),
+    ("潍坊本地", ["潍坊"]),  # 潍坊本地频道优先级
     ("央视", ["CCTV"]),
     ("其他卫视", ["卫视", "浙江", "湖南", "江苏", "东方", "北京", "安徽", "广东", "河南", "深圳"])
 ]
 
-# 酷9专用ID映射表（数字ID→名称ID，含完整4K频道）
+# 酷9专用ID映射表（新增潍坊频道）
 COOL9_ID_MAPPING = {
     # 山东本地频道
     "89": "山东卫视", "221": "山东教育", "381": "山东新闻", 
     "382": "山东农科", "383": "山东齐鲁", "384": "山东文旅",
+    "385": "山东少儿",
+    # 潍坊本地频道（示例ID，可根据实际调整）
+    "390": "潍坊新闻", "391": "潍坊综合", "392": "潍坊影视", "393": "潍坊生活",
     # 央视常规频道
     "1": "CCTV1", "2": "CCTV2", "3": "CCTV3", "4": "CCTV4", 
     "5": "CCTV5", "6": "CCTV6", "7": "CCTV7", "8": "CCTV8",
     "9": "CCTV9", "10": "CCTV10",
-    # 4K超高清频道（完整补充）
+    # 4K超高清频道
     "101": "CCTV4K", "102": "浙江卫视4K", "103": "湖南卫视4K",
     "104": "东方卫视4K", "105": "北京卫视4K", "106": "广东卫视4K",
     "107": "深圳卫视4K", "108": "山东卫视4K"
 }
 
-# 国内频道关键词（完整覆盖，过滤国外频道）
+# 国内频道关键词（新增“潍坊”）
 DOMESTIC_KEYWORDS = [
-    "山东", "CCTV", "卫视", "央视", "中国", "东方", "浙江", "湖南", "江苏", "北京",
+    "山东", "潍坊", "CCTV", "卫视", "央视", "中国", "东方", "浙江", "湖南", "江苏", "北京",
     "安徽", "广东", "河南", "深圳", "四川", "重庆", "天津", "湖北", "江西", "河北",
     "山西", "陕西", "甘肃", "青海", "宁夏", "新疆", "内蒙古", "辽宁", "吉林", "黑龙江",
     "上海", "福建", "广西", "海南", "贵州", "云南", "西藏", "香港", "澳门", "台湾"
@@ -152,6 +156,9 @@ class EPGGenerator:
         """处理频道数据，含分类、过滤、统计"""
         channels = xml_tree.xpath("//channel")
         shandong_count = 0
+        weifang_count = 0
+        shandong_channel_names = []
+        weifang_channel_names = []  # 存储潍坊频道名称
         
         for channel in channels:
             cid = channel.get("id", "").strip()
@@ -184,13 +191,23 @@ class EPGGenerator:
                     self.priority_channels[cat_name].append(channel)
                     channel_added = True
                     if "山东" in channel_name:
-                        shandong_count += 1  # 统计山东本地频道
+                        shandong_count += 1
+                        shandong_channel_names.append(channel_name)
+                    if "潍坊" in channel_name:
+                        weifang_count += 1
+                        weifang_channel_names.append(channel_name)
                     break
                     
             if not channel_added:
                 self.other_channels.append(channel)
+        
+        # 打印山东、潍坊频道列表
+        if shandong_channel_names:
+            logging.info(f"  - 山东本地频道列表: {', '.join(shandong_channel_names)}")
+        if weifang_channel_names:
+            logging.info(f"  - 潍坊本地频道列表: {', '.join(weifang_channel_names)}")
                 
-        return shandong_count
+        return shandong_count + weifang_count
 
     def process_programs(self, xml_tree):
         """处理节目单数据，映射酷9频道ID"""
@@ -217,10 +234,10 @@ class EPGGenerator:
                 try:
                     success, _, xml_tree = future.result()
                     if success and xml_tree is not None:
-                        shandong_count = self.process_channels(xml_tree, source)
+                        total_local_count = self.process_channels(xml_tree, source)
                         self.process_programs(xml_tree)
                         successful_sources += 1
-                        logging.info(f"处理完成: {source} | 山东频道: {shandong_count}个")
+                        logging.info(f"处理完成: {source} | 本地频道总数: {total_local_count}个")
                         
                 except Exception as e:
                     logging.error(f"处理源数据失败 {source}: {str(e)}")
@@ -237,7 +254,7 @@ class EPGGenerator:
         
         root = etree.fromstring(f"{xml_declare}</tv>".encode("utf-8"))
         
-        # 按优先级添加频道（山东本地→央视→其他卫视→其他频道）
+        # 按优先级添加频道（山东本地→潍坊本地→央视→其他卫视→其他频道）
         insert_position = 0
         for category, _ in CHANNEL_PRIORITY:
             for channel in self.priority_channels[category]:
@@ -293,6 +310,10 @@ class EPGGenerator:
         for category, _ in CHANNEL_PRIORITY:
             count = len(self.priority_channels[category])
             logging.info(f"  {category}: {count}个频道")
+            # 打印具体频道名称
+            if category in ["山东本地", "潍坊本地"]:
+                channel_names = [ch.xpath(".//display-name/text()")[0].strip() for ch in self.priority_channels[category]]
+                logging.info(f"    具体频道: {', '.join(channel_names)}")
             
         other_count = len(self.other_channels)
         logging.info(f"  其他国内频道: {other_count}个")
