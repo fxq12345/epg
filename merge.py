@@ -6,30 +6,41 @@ import os
 import time
 from datetime import datetime, timedelta
 
-# 从config.txt加载EPG源
+# 从config.txt加载EPG源（优先使用配置文件，无则用默认5个源）
 EPG_SOURCES = []
+DEFAULT_SOURCES = [
+    "https://epg.27481716.xyz/epg.xml",
+    "https://e.erw.cc/all.xml",
+    "https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz",
+    "http://epg.51zmt.top:8000/e.xml",
+    "https://raw.githubusercontent.com/fanmingming/live/main/e.xml"
+]
 
 def load_epg_sources(config_path="config.txt"):
     if not os.path.exists(config_path):
-        print(f"⚠️  配置文件{config_path}不存在，仅加载本地潍坊源")
-        return ["output/weifang.xml"]
+        print(f"⚠️  配置文件{config_path}不存在，使用默认5个网络源+本地潍坊源")
+        return DEFAULT_SOURCES + ["output/weifang.xml"]
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
         network_sources = [line.strip() for line in lines if line.strip() and not line.strip().startswith("#")]
+        if not network_sources:
+            print(f"⚠️  配置文件为空，使用默认5个网络源+本地潍坊源")
+            network_sources = DEFAULT_SOURCES
         network_sources.append("output/weifang.xml")
         print(f"✅ 从{config_path}加载{len(network_sources)-1}个网络源 + 1个本地源")
         return network_sources
     except Exception as e:
-        print(f"⚠️  读取配置文件失败：{str(e)}，仅加载本地潍坊源")
-        return ["output/weifang.xml"]
+        print(f"⚠️  读取配置文件失败：{str(e)}，使用默认5个网络源+本地潍坊源")
+        return DEFAULT_SOURCES + ["output/weifang.xml"]
 
 EPG_SOURCES = load_epg_sources()
 channels = {}
 programmes = []
 
-# 潍坊静态节目数据（用于补全其他源的当天节目）
-STATIC_PROG_DATA = [
+# 通用节目补全数据（适配所有常见频道类型）
+GENERAL_PROG_DATA = [
+    # 潍坊本地频道
     {"channel_name": "潍坊新闻综合频道", "time": "07:00", "title": "潍坊新闻早班车", "duration": 60},
     {"channel_name": "潍坊新闻综合频道", "time": "08:00", "title": "生活帮", "duration": 60},
     {"channel_name": "潍坊新闻综合频道", "time": "12:00", "title": "正午新闻", "duration": 30},
@@ -41,13 +52,24 @@ STATIC_PROG_DATA = [
     {"channel_name": "潍坊公共", "time": "10:00", "title": "健康大讲堂", "duration": 60},
     {"channel_name": "潍坊公共", "time": "15:00", "title": "公共剧场", "duration": 120},
     {"channel_name": "潍坊科教文化", "time": "08:30", "title": "科普天地", "duration": 60},
-    {"channel_name": "潍坊科教文化", "time": "16:00", "title": "教育在线", "duration": 60}
+    {"channel_name": "潍坊科教文化", "time": "16:00", "title": "教育在线", "duration": 60},
+    # 通用频道
+    {"channel_name": "CCTV-1", "time": "07:00", "title": "朝闻天下", "duration": 120},
+    {"channel_name": "CCTV-1", "time": "12:00", "title": "新闻30分", "duration": 30},
+    {"channel_name": "CCTV-1", "time": "19:00", "title": "新闻联播", "duration": 30},
+    {"channel_name": "山东卫视", "time": "08:00", "title": "早间新闻", "duration": 60},
+    {"channel_name": "山东卫视", "time": "12:30", "title": "正午新闻圈", "duration": 30},
+    {"channel_name": "山东卫视", "time": "19:30", "title": "黄金剧场", "duration": 120},
+    {"channel_name": "湖南卫视", "time": "07:30", "title": "早安湖南", "duration": 30},
+    {"channel_name": "浙江卫视", "time": "19:30", "title": "中国蓝剧场", "duration": 120},
+    {"channel_name": "江苏卫视", "time": "20:20", "title": "非诚勿扰", "duration": 90}
 ]
 
 def fetch_epg_source(source_path):
     try:
         print(f"📥 处理: {source_path}")
         start_time = datetime.now()
+        # 处理本地文件
         if os.path.exists(source_path):
             try:
                 with open(source_path, "r", encoding="utf-8") as f:
@@ -62,35 +84,44 @@ def fetch_epg_source(source_path):
             except Exception as e:
                 print(f"⚠️  本地文件处理失败：{source_path} | 错误: {str(e)}")
                 return None
+        # 处理网络源
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-        max_retries = 2
+        max_retries = 3
         response = None
         for retry in range(max_retries):
             try:
-                response = requests.get(source_path, headers=headers, timeout=20)
+                response = requests.get(source_path, headers=headers, timeout=30)
                 response.raise_for_status()
                 break
             except requests.exceptions.RequestException as e:
                 if retry < max_retries - 1:
                     print(f"⚠️  网络源重试{retry+1}/{max_retries}：{str(e)}")
-                    time.sleep(3)
+                    time.sleep(5)
                 else:
                     raise e
-        if source_path.endswith(".gz"):
-            with gzip.GzipFile(fileobj=io.BytesIO(response.content)) as f:
-                xml_content = f.read().decode("utf-8")
-        else:
-            xml_content = response.text
+        # 编码适配
+        try:
+            if source_path.endswith(".gz"):
+                with gzip.GzipFile(fileobj=io.BytesIO(response.content)) as f:
+                    xml_content = f.read().decode("utf-8")
+            else:
+                xml_content = response.content.decode(response.apparent_encoding or "utf-8")
+        except UnicodeDecodeError:
+            xml_content = response.content.decode("gbk", errors="ignore")
         if not xml_content.strip() or not xml_content.startswith("<?xml"):
             print(f"⚠️  网络源数据无效，跳过：{source_path}")
             return None
+        xml_content = xml_content.replace("\x00", "").strip()
         root = ET.fromstring(xml_content)
-        # 校验当天节目数量
+        # 替换XPath 2.0语法，改用Python逻辑
         today = datetime.now().date().strftime("%Y%m%d")
-        today_prog_count = len(root.findall(f".//programme[starts-with(@start,'{today}')]"))
-        if today_prog_count < 5:
-            print(f"⚠️  当天节目数量过少（仅{today_prog_count}条），跳过该源：{source_path}")
-            return None
+        today_prog_count = 0
+        for prog in root.findall(".//programme"):
+            start = prog.get("start", "")
+            if start.startswith(today):
+                today_prog_count += 1
+        if today_prog_count < 3:
+            print(f"⚠️  当天节目数量过少（仅{today_prog_count}条），后续将自动补全：{source_path}")
         parse_time = (datetime.now() - start_time).total_seconds()
         print(f"✅ 抓取网络源: {source_path} | 耗时: {parse_time:.2f}s")
         return root
@@ -100,13 +131,26 @@ def fetch_epg_source(source_path):
 
 def parse_epg(root, source_path):
     for channel in root.findall(".//channel"):
-        channel_name = channel.findtext(".//display-name", default="未知频道").strip()
+        # 提取频道名称
+        display_names = channel.findall(".//display-name")
+        channel_name = ""
+        for dn in display_names:
+            if dn.text and dn.text.strip():
+                channel_name = dn.text.strip()
+                break
         if not channel_name:
-            continue
+            channel_name = f"未知频道_{len(channels)+1}"
+        # 处理频道ID
         channel_id = channel.get("id")
         if not channel_id or not channel_id.isdigit():
             import random
-            channel_id = f"wf_{random.randint(1005, 9999)}"
+            channel_id = f"wf_{random.randint(10000, 99999)}"
+        # 名称标准化去重
+        channel_name_normalized = channel_name.strip().lower()
+        existing_name = next((name for name in channels.keys() if name.strip().lower() == channel_name_normalized), None)
+        if existing_name:
+            print(f"🔄 频道已存在（标准化）：{channel_name} → {existing_name}（ID：{channels[existing_name]['id']}）")
+            continue
         if channel_name not in channels:
             channels[channel_name] = {"name": channel_name, "id": channel_id}
             if "潍坊" in channel_name:
@@ -117,8 +161,12 @@ def parse_epg(root, source_path):
                 print(f"➕ 新增普通频道：{channel_name}（ID：{channel_id}）")
         else:
             print(f"🔄 频道已存在：{channel_name}（ID：{channels[channel_name]['id']}）")
+    # 处理节目
     for programme in root.findall(".//programme"):
         prog_channel_id = programme.get("channel")
+        if not prog_channel_id:
+            continue
+        # 匹配频道名称
         prog_channel_name = None
         for name, info in channels.items():
             if info["id"] == prog_channel_id:
@@ -126,20 +174,58 @@ def parse_epg(root, source_path):
                 break
         if not prog_channel_name:
             continue
+        # 处理节目时间
+        start_str = programme.get("start", "")
+        stop_str = programme.get("stop", "")
+        if start_str and not stop_str:
+            try:
+                start_time = datetime.strptime(start_str.split("+")[0], "%Y%m%d%H%M%S")
+                stop_time = start_time + timedelta(minutes=60)
+                stop_str = stop_time.strftime("%Y%m%d%H%M%S +0800")
+            except:
+                stop_str = start_str
+        # 提取标题
+        title_elem = programme.find(".//title[@lang='zh']") or programme.find(".//title")
+        title = title_elem.text.strip() if title_elem and title_elem.text else "未知节目"
         programmes.append({
             "channel_name": prog_channel_name,
-            "start": programme.get("start", ""),
-            "stop": programme.get("stop", ""),
-            "title": programme.findtext(".//title[@lang='zh']", default="未知节目").strip()
+            "start": start_str,
+            "stop": stop_str,
+            "title": title
         })
 
 def fill_missing_today_programs():
     today = datetime.now().date().strftime("%Y%m%d")
+    today_prog_count_before = len([p for p in programmes if p["start"].startswith(today)])
     for channel_name in channels.keys():
-        has_today = any(p["start"].startswith(today) for p in programmes if p["channel_name"] == channel_name)
-        if not has_today:
-            for prog in STATIC_PROG_DATA:
-                if prog["channel_name"] == channel_name:
+        has_valid_today = any(
+            p["start"].startswith(today) and p["title"] != "未知节目"
+            for p in programmes if p["channel_name"] == channel_name
+        )
+        if not has_valid_today:
+            matched_progs = [p for p in GENERAL_PROG_DATA if p["channel_name"] == channel_name]
+            if not matched_progs:
+                for prog in GENERAL_PROG_DATA:
+                    if prog["channel_name"] in channel_name or channel_name in prog["channel_name"]:
+                        matched_progs.append(prog)
+                        break
+            for prog in matched_progs:
+                start = datetime.strptime(f"{today} {prog['time']}", "%Y%m%d %H:%M")
+                programmes.append({
+                    "channel_name": channel_name,
+                    "start": start.strftime("%Y%m%d%H%M%S +0800"),
+                    "stop": (start + timedelta(minutes=prog["duration"])).strftime("%Y%m%d%H%M%S +0800"),
+                    "title": prog["title"]
+                })
+            if matched_progs:
+                print(f"🔧 补全频道当天节目：{channel_name}（{len(matched_progs)}个）")
+            else:
+                default_progs = [
+                    {"time": "08:00", "title": "早间节目", "duration": 60},
+                    {"time": "12:00", "title": "午间节目", "duration": 30},
+                    {"time": "19:00", "title": "晚间节目", "duration": 90}
+                ]
+                for prog in default_progs:
                     start = datetime.strptime(f"{today} {prog['time']}", "%Y%m%d %H:%M")
                     programmes.append({
                         "channel_name": channel_name,
@@ -147,28 +233,49 @@ def fill_missing_today_programs():
                         "stop": (start + timedelta(minutes=prog["duration"])).strftime("%Y%m%d%H%M%S +0800"),
                         "title": prog["title"]
                     })
-            print(f"🔧 补全频道当天节目：{channel_name}")
+                print(f"🔧 补全频道当天节目（通用模板）：{channel_name}")
+    today_prog_count_after = len([p for p in programmes if p["start"].startswith(today)])
+    print(f"📈 当天节目补全：{today_prog_count_before}条 → {today_prog_count_after}条")
 
 def generate_final_epg():
+    # 频道排序
     sorted_channel_names = []
     sorted_channel_names.extend([name for name in channels.keys() if "潍坊" in name])
+    sorted_channel_names.extend([name for name in channels.keys() if "央视" in name or "CCTV" in name and name not in sorted_channel_names])
     sorted_channel_names.extend([name for name in channels.keys() if "山东" in name and name not in sorted_channel_names])
-    sorted_channel_names.extend([name for name in channels.keys() if "央视" in name and name not in sorted_channel_names])
     sorted_channel_names.extend([name for name in channels.keys() if "卫视" in name and name not in sorted_channel_names])
     sorted_channel_names.extend([name for name in channels.keys() if name not in sorted_channel_names])
     
+    # 生成XML
     tv = ET.Element("tv", {
-        "source-info-name": "综合EPG源（酷9适配）",
-        "generated-date": datetime.now().strftime("%Y%m%d%H%M%S +0800")
+        "source-info-name": "综合EPG源（酷9适配+全源补全）",
+        "generated-date": datetime.now().strftime("%Y%m%d%H%M%S +0800"),
+        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance"
     })
     xml_declaration = '<?xml version="1.0" encoding="UTF-8"?>\n'
     
+    # 添加频道
     for channel_name in sorted_channel_names:
         channel_info = channels[channel_name]
         chan_elem = ET.SubElement(tv, "channel", {"id": channel_info["id"]})
         ET.SubElement(chan_elem, "display-name").text = channel_name
-    programmes.sort(key=lambda x: x["start"])
+        if "CCTV" in channel_name:
+            ET.SubElement(chan_elem, "display-name").text = channel_name.replace("CCTV", "央视")
+        elif "卫视" in channel_name and not channel_name.endswith("卫视"):
+            ET.SubElement(chan_elem, "display-name").text = channel_name + "卫视"
+    
+    # 节目去重排序
+    programmes.sort(key=lambda x: (x["channel_name"], x["start"]))
+    unique_progs = []
+    seen = set()
     for prog in programmes:
+        key = (prog["channel_name"], prog["start"], prog["title"])
+        if key not in seen:
+            seen.add(key)
+            unique_progs.append(prog)
+    
+    # 添加节目
+    for prog in unique_progs:
         prog_channel_id = channels[prog["channel_name"]]["id"]
         prog_elem = ET.SubElement(tv, "programme", {
             "start": prog["start"],
@@ -176,7 +283,12 @@ def generate_final_epg():
             "channel": prog_channel_id
         })
         ET.SubElement(prog_elem, "title", {"lang": "zh"}).text = prog["title"]
+        if "新闻" in prog["title"]:
+            ET.SubElement(prog_elem, "desc", {"lang": "zh"}).text = "权威新闻资讯，及时播报热点"
+        elif "剧场" in prog["title"]:
+            ET.SubElement(prog_elem, "desc", {"lang": "zh"}).text = "精彩影视剧集，尽享视听盛宴"
     
+    # 保存文件
     os.makedirs("output", exist_ok=True)
     xml_str = ET.tostring(tv, encoding="utf-8").decode("utf-8")
     from xml.dom import minidom
@@ -185,10 +297,10 @@ def generate_final_epg():
     
     with open("output/final_epg_complete.xml", "w", encoding="utf-8") as f:
         f.write(xml_str)
-    print(f"\n🎉 EPG生成完成：output/final_epg_complete.xml（{len(channels)}个频道，{len(programmes)}个节目）")
+    print(f"\n🎉 EPG生成完成：output/final_epg_complete.xml（{len(channels)}个频道，{len(unique_progs)}个节目）")
 
 if __name__ == "__main__":
-    print("="*60 + "\nEPG合并工具（酷9名称匹配版）启动\n" + "="*60)
+    print("="*60 + "\nEPG合并工具（酷9适配+全源补全版）启动\n" + "="*60)
     start_total = datetime.now()
     for source in EPG_SOURCES:
         print(f"\n{'='*40} 处理源：{source} {'='*40}")
