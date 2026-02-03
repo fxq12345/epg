@@ -1,15 +1,1 @@
-<?xml version="1.0" ?>
-<tv source-info-url="公开EPG源" source-info-name="潍坊本地EPG" generated-date="20260203035313 +0800">
-  <channel id="SDWF-SDWF1">
-    <display-name>潍坊新闻综合频道</display-name>
-  </channel>
-  <channel id="SDWF-SDWF3">
-    <display-name>潍坊生活频道</display-name>
-  </channel>
-  <channel id="SDWF-SDWF2">
-    <display-name>潍坊公共频道</display-name>
-  </channel>
-  <channel id="SDWF-SDWF4">
-    <display-name>潍坊科教频道</display-name>
-  </channel>
-</tv>
+<tv></tv>
