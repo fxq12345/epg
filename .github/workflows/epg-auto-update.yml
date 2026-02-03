@@ -26,10 +26,11 @@ jobs:
       - name: 安装依赖
         run: |
           pip install --upgrade pip
-          pip install requests beautifulsoup4
+          pip install requests beautifulsoup4 lxml urllib3  # 包含所有依赖
 
-      - name: 运行潍坊EPG爬虫
+      - name: 运行潍坊EPG爬虫（失败不中断）
         run: python weifang_epg_spider.py
+        continue-on-error: true  # 关键配置：爬虫失败仍继续执行后续步骤
 
       - name: 运行EPG合并脚本
         run: python merge.py
