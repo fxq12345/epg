@@ -36,14 +36,14 @@ EPG_SOURCES = load_epg_sources()
 channels = {}
 programmes = []
 
-# 🔥 关键：酷9内置ID映射（覆盖潍坊+央视+卫视，纯数字ID）
+# 🔥 酷9内置ID映射（纯数字ID，覆盖所有目标频道）
 COOL9_ID_MAP = {
-    # 潍坊本地频道（1-4，已验证1001可显示，改为1更贴合默认规则）
+    # 潍坊本地频道
     "潍坊新闻综合频道": "1",
     "潍坊经济生活": "2",
     "潍坊公共": "3",
     "潍坊科教文化": "4",
-    # 央视频道（酷9默认ID段：10-29）
+    # 央视频道
     "CCTV-1": "10",
     "CCTV-2": "11",
     "CCTV-3": "12",
@@ -54,27 +54,13 @@ COOL9_ID_MAP = {
     "CCTV-8": "17",
     "CCTV-9": "18",
     "CCTV-10": "19",
-    "CCTV-11": "20",
-    "CCTV-12": "21",
-    "CCTV-13": "22",
-    "CCTV-14": "23",
-    "CCTV-15": "24",
-    # 山东频道（酷9默认ID段：30-39）
+    # 山东频道
     "山东卫视": "30",
     "山东综艺": "31",
-    "山东影视": "32",
-    "山东体育": "33",
-    # 热门卫视频道（酷9默认ID段：50-79）
+    # 热门卫视频道
     "湖南卫视": "50",
     "浙江卫视": "51",
-    "江苏卫视": "52",
-    "东方卫视": "53",
-    "北京卫视": "54",
-    "安徽卫视": "55",
-    "广东卫视": "56",
-    "深圳卫视": "57",
-    "四川卫视": "58",
-    "河南卫视": "59"
+    "江苏卫视": "52"
 }
 
 # 通用节目补全数据
@@ -87,21 +73,13 @@ GENERAL_PROG_DATA = [
     {"channel_name": "潍坊新闻综合频道", "time": "20:00", "title": "黄金剧场", "duration": 120},
     {"channel_name": "潍坊经济生活", "time": "09:00", "title": "生活百科", "duration": 60},
     {"channel_name": "潍坊经济生活", "time": "12:30", "title": "美食潍坊", "duration": 30},
-    {"channel_name": "潍坊经济生活", "time": "19:00", "title": "家居风尚", "duration": 60},
     {"channel_name": "潍坊公共", "time": "10:00", "title": "健康大讲堂", "duration": 60},
-    {"channel_name": "潍坊公共", "time": "15:00", "title": "公共剧场", "duration": 120},
     {"channel_name": "潍坊科教文化", "time": "08:30", "title": "科普天地", "duration": 60},
-    {"channel_name": "潍坊科教文化", "time": "16:00", "title": "教育在线", "duration": 60},
     # 央视+卫视
     {"channel_name": "CCTV-1", "time": "07:00", "title": "朝闻天下", "duration": 120},
-    {"channel_name": "CCTV-1", "time": "12:00", "title": "新闻30分", "duration": 30},
     {"channel_name": "CCTV-1", "time": "19:00", "title": "新闻联播", "duration": 30},
-    {"channel_name": "山东卫视", "time": "08:00", "title": "早间新闻", "duration": 60},
-    {"channel_name": "山东卫视", "time": "12:30", "title": "正午新闻圈", "duration": 30},
     {"channel_name": "山东卫视", "time": "19:30", "title": "黄金剧场", "duration": 120},
-    {"channel_name": "湖南卫视", "time": "07:30", "title": "早安湖南", "duration": 30},
-    {"channel_name": "浙江卫视", "time": "19:30", "title": "中国蓝剧场", "duration": 120},
-    {"channel_name": "江苏卫视", "time": "20:20", "title": "非诚勿扰", "duration": 90}
+    {"channel_name": "湖南卫视", "time": "20:00", "title": "金鹰独播剧场", "duration": 120}
 ]
 
 def fetch_epg_source(source_path):
@@ -195,10 +173,9 @@ def parse_epg(root, source_path):
         if channel_name in COOL9_ID_MAP:
             channel_id = COOL9_ID_MAP[channel_name]
         else:
-            # 未知频道：生成100+纯数字ID（避开已知ID段）
             channel_id = str(100 + len(channels) + 1)
         
-        # 按ID去重（避免冲突）
+        # 按ID去重
         existing_chan = next((name for name, info in channels.items() if info["id"] == channel_id), None)
         if existing_chan:
             print(f"🔄 ID冲突，跳过重复：{channel_name} → {existing_chan}（ID：{channel_id}）")
@@ -207,10 +184,8 @@ def parse_epg(root, source_path):
         channels[channel_name] = {"name": channel_name, "id": channel_id}
         if "潍坊" in channel_name:
             print(f"🔒 潍坊频道：{channel_name}（ID：{channel_id}）")
-        elif "CCTV" in channel_name or "央视" in channel_name:
+        elif "CCTV" in channel_name:
             print(f"➕ 央视频道：{channel_name}（ID：{channel_id}）")
-        elif "山东" in channel_name:
-            print(f"➕ 山东频道：{channel_name}（ID：{channel_id}）")
         elif "卫视" in channel_name:
             print(f"➕ 卫视频道：{channel_name}（ID：{channel_id}）")
         else:
@@ -290,4 +265,85 @@ def fill_missing_today_programs():
                     })
                 print(f"🔧 补全节目（通用模板）：{channel_name}")
     today_prog_count_after = len([p for p in programmes if p["start"].startswith(today)])
-    print(f"📈 节目补全：{today
+    print(f"📈 节目补全：{today_prog_count_before}条 → {today_prog_count_after}条")
+
+def generate_final_epg():
+    # 频道排序（潍坊→央视→卫视）
+    sorted_channel_names = []
+    # 潍坊频道
+    sorted_channel_names.extend([name for name in COOL9_ID_MAP.keys() if "潍坊" in name])
+    # 央视频道
+    sorted_channel_names.extend([name for name in COOL9_ID_MAP.keys() if "CCTV" in name])
+    # 卫视频道
+    sorted_channel_names.extend([name for name in COOL9_ID_MAP.keys() if "卫视" in name])
+    # 其他频道
+    sorted_channel_names.extend([name for name in channels.keys() if name not in COOL9_ID_MAP])
+    
+    # 生成XML（酷9兼容格式）
+    tv = ET.Element("tv", {
+        "source-info-name": "酷9专用EPG",
+        "generated-date": datetime.now().strftime("%Y%m%d%H%M%S +0800")
+    })
+    xml_declaration = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    
+    # 添加频道（仅保留纯数字ID和简洁名称）
+    for channel_name in sorted_channel_names:
+        if channel_name not in channels:
+            continue
+        channel_info = channels[channel_name]
+        chan_elem = ET.SubElement(tv, "channel", {"id": channel_info["id"]})
+        # 简化名称（酷9识别更精准）
+        if "潍坊" in channel_name:
+            ET.SubElement(chan_elem, "display-name").text = channel_name.replace("频道", "")
+        else:
+            ET.SubElement(chan_elem, "display-name").text = channel_name
+    
+    # 节目去重排序
+    programmes.sort(key=lambda x: (x["channel_name"], x["start"]))
+    unique_progs = []
+    seen = set()
+    for prog in programmes:
+        key = (prog["channel_name"], prog["start"], prog["title"])
+        if key not in seen:
+            seen.add(key)
+            unique_progs.append(prog)
+    
+    # 添加节目（移除多余属性）
+    for prog in unique_progs:
+        prog_channel_id = channels[prog["channel_name"]]["id"]
+        prog_elem = ET.SubElement(tv, "programme", {
+            "start": prog["start"],
+            "stop": prog["stop"],
+            "channel": prog_channel_id
+        })
+        ET.SubElement(prog_elem, "title").text = prog["title"]
+        if "新闻" in prog["title"]:
+            ET.SubElement(prog_elem, "desc").text = "新闻节目"
+        elif "剧场" in prog["title"]:
+            ET.SubElement(prog_elem, "desc").text = "影视节目"
+    
+    # 保存文件
+    os.makedirs("output", exist_ok=True)
+    xml_str = ET.tostring(tv, encoding="utf-8").decode("utf-8")
+    xml_str = xml_declaration + xml_str
+    
+    with open("output/final_epg_complete.xml", "w", encoding="utf-8") as f:
+        f.write(xml_str)
+    print(f"\n🎉 酷9专用EPG生成完成：{len(channels)}个频道，{len(unique_progs)}个节目")
+
+if __name__ == "__main__":
+    print("="*60 + "\n酷9专用EPG合并工具（最终版）启动\n" + "="*60)
+    start_total = datetime.now()
+    for source in EPG_SOURCES:
+        print(f"\n{'='*40} 处理源：{source} {'='*40}")
+        root = fetch_epg_source(source)
+        if root:
+            parse_epg(root, source)
+    if channels and programmes:
+        fill_missing_today_programs()
+        generate_final_epg()
+    else:
+        print("\n❌ 未获取到有效EPG数据！")
+    total_time = (datetime.now() - start_total).total_seconds()
+    print(f"\n⏱️  总耗时：{total_time:.2f} 秒")
+    print("="*60)
