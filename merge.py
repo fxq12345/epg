@@ -18,6 +18,8 @@ LOG_FILE = "epg_merge.log"
 MAX_WORKERS = 3  # 并发线程数（可根据需求调整）
 TIMEOUT = 30
 CORE_RETRY_COUNT = 2
+# 目标文件名（直接生成，避免重命名）
+TARGET_EPG_NAME = "final_epg_complete"
 
 # 配置日志
 logging.basicConfig(
@@ -273,30 +275,30 @@ class EPGGenerator:
         return etree.tostring(root, encoding="utf-8", pretty_print=True).decode("utf-8")
 
     def save_epg_files(self, xml_content: str):
-        """保存EPG文件（XML+GZIP），清理旧文件"""
+        """直接保存为目标文件名，避免重命名步骤"""
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         
         # 清理旧文件，避免占用空间
         for f in os.listdir(OUTPUT_DIR):
-            if f.endswith(('.xml', '.gz', '.log')):
+            if f.startswith(TARGET_EPG_NAME) or f.endswith(('.xml', '.gz', '.log')):
                 try:
                     os.remove(os.path.join(OUTPUT_DIR, f))
                 except Exception as e:
                     logging.warning(f"删除旧文件失败 {f}: {str(e)}")
         
-        # 保存XML文件
-        xml_path = os.path.join(OUTPUT_DIR, "epg.xml")
+        # 保存XML文件（目标文件名）
+        xml_path = os.path.join(OUTPUT_DIR, f"{TARGET_EPG_NAME}.xml")
         with open(xml_path, "w", encoding="utf-8") as f:
             f.write(xml_content)
         xml_size = os.path.getsize(xml_path)
         
-        # 保存GZIP压缩文件（节省空间，机顶盒支持自动解压）
-        gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
+        # 保存GZIP压缩文件（目标文件名）
+        gz_path = os.path.join(OUTPUT_DIR, f"{TARGET_EPG_NAME}.gz")
         with gzip.open(gz_path, "wb") as f:
             f.write(xml_content.encode("utf-8"))
         gz_size = os.path.getsize(gz_path)
         
-        logging.info(f"EPG文件生成完成: XML={xml_size}字节, GZIP={gz_size}字节")
+        logging.info(f"EPG文件生成完成: {TARGET_EPG_NAME}.xml={xml_size}字节, {TARGET_EPG_NAME}.gz={gz_size}字节")
 
     def print_statistics(self):
         """打印详细统计报告，方便核对"""
@@ -339,7 +341,7 @@ class EPGGenerator:
             # 生成最终的XML内容
             xml_content = self.generate_final_xml()
             
-            # 保存文件（XML+GZIP）
+            # 保存文件（直接用目标文件名）
             self.save_epg_files(xml_content)
             
             # 输出统计报告
