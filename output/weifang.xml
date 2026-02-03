@@ -1,1 +1,51 @@
-<tv></tv>
+<?xml version="1.0" ?>
+<tv source-info-name="潍坊EPG（静态数据）" generated-date="20260203060720 +0800">
+  <channel id="1001">
+    <display-name>潍坊新闻综合频道</display-name>
+  </channel>
+  <programme start="20260203070000 +0800" channel="1001">
+    <title lang="zh">潍坊新闻早班车</title>
+  </programme>
+  <programme start="20260203080000 +0800" channel="1001">
+    <title lang="zh">生活帮</title>
+  </programme>
+  <programme start="20260203120000 +0800" channel="1001">
+    <title lang="zh">正午新闻</title>
+  </programme>
+  <programme start="20260203183000 +0800" channel="1001">
+    <title lang="zh">潍坊新闻联播</title>
+  </programme>
+  <programme start="20260203200000 +0800" channel="1001">
+    <title lang="zh">黄金剧场</title>
+  </programme>
+  <channel id="1002">
+    <display-name>潍坊生活频道</display-name>
+  </channel>
+  <programme start="20260203090000 +0800" channel="1002">
+    <title lang="zh">生活百科</title>
+  </programme>
+  <programme start="20260203123000 +0800" channel="1002">
+    <title lang="zh">美食潍坊</title>
+  </programme>
+  <programme start="20260203190000 +0800" channel="1002">
+    <title lang="zh">家居风尚</title>
+  </programme>
+  <channel id="1003">
+    <display-name>潍坊公共频道</display-name>
+  </channel>
+  <programme start="20260203100000 +0800" channel="1003">
+    <title lang="zh">健康大讲堂</title>
+  </programme>
+  <programme start="20260203150000 +0800" channel="1003">
+    <title lang="zh">公共剧场</title>
+  </programme>
+  <channel id="1004">
+    <display-name>潍坊科教频道</display-name>
+  </channel>
+  <programme start="20260203083000 +0800" channel="1004">
+    <title lang="zh">科普天地</title>
+  </programme>
+  <programme start="20260203160000 +0800" channel="1004">
+    <title lang="zh">教育在线</title>
+  </programme>
+</tv>
