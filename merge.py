@@ -35,16 +35,7 @@ def fetch_epg_source(source_path):
         # 处理本地文件
         if os.path.exists(source_path):
             try:
-                with open(source_path, "r", encoding="gbk") as f:
-                    xml_content = f.read()
-                if not xml_content.strip() or xml_content.strip() == "<tv></tv>":
-                    print(f"⚠️  本地文件为空，跳过处理：{source_path}")
-                    return None
-                root = ET.fromstring(xml_content)
-                parse_time = (datetime.now() - start_time).total_seconds()
-                print(f"✅ 读取本地文件(GBK)：{source_path} | 耗时: {parse_time:.2f}s")
-                return root
-            except UnicodeDecodeError:
+                # 统一用UTF-8读取（避免编码冲突）
                 with open(source_path, "r", encoding="utf-8") as f:
                     xml_content = f.read()
                 if not xml_content.strip() or xml_content.strip() == "<tv></tv>":
@@ -57,7 +48,7 @@ def fetch_epg_source(source_path):
             except Exception as e:
                 print(f"⚠️  本地文件处理失败：{source_path} | 错误: {str(e)}")
                 return None
-        # 处理网络源：新增重试+数据校验
+        # 处理网络源：重试+数据校验
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
         max_retries = 2
         response = None
@@ -72,7 +63,7 @@ def fetch_epg_source(source_path):
                     time.sleep(3)
                 else:
                     raise e
-        # 校验网络源数据有效性
+        # 校验网络源数据
         if source_path.endswith(".gz"):
             with gzip.GzipFile(fileobj=io.BytesIO(response.content)) as f:
                 xml_content = f.read().decode("utf-8")
@@ -119,6 +110,7 @@ def parse_epg(root, source_path):
             })
 
 def generate_final_epg():
+    # 频道排序（潍坊→山东→央视→卫视→其他）
     sorted_channels = []
     sorted_channels.extend([c for c in channels.values() if c["id"] in ["1001", "1002", "1003", "1004"]])
     sorted_channels.extend([c for c in channels.values() if "山东" in c["name"] and c["id"] not in ["1001", "1002", "1003", "1004"]])
@@ -126,10 +118,14 @@ def generate_final_epg():
     sorted_channels.extend([c for c in channels.values() if "卫视" in c["name"] and c not in sorted_channels])
     sorted_channels.extend([c for c in channels.values() if c not in sorted_channels])
     
+    # 生成UTF-8编码的XML（兼容酷9）
     tv = ET.Element("tv", {
         "source-info-name": "综合EPG源（酷9适配）",
         "generated-date": datetime.now().strftime("%Y%m%d%H%M%S +0800")
     })
+    # 添加XML声明（指定UTF-8编码）
+    xml_declaration = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    
     for chan_info in sorted_channels:
         chan_elem = ET.SubElement(tv, "channel", {"id": chan_info["id"]})
         ET.SubElement(chan_elem, "display-name").text = chan_info["name"]
@@ -142,16 +138,19 @@ def generate_final_epg():
         ET.SubElement(prog_elem, "title", {"lang": "zh"}).text = prog["title"]
     
     os.makedirs("output", exist_ok=True)
-    xml_str = ET.tostring(tv, encoding="gbk", xml_declaration=True)
+    # 生成XML内容（UTF-8）
+    xml_str = ET.tostring(tv, encoding="utf-8").decode("utf-8")
+    # 拼接声明+内容，格式化
     from xml.dom import minidom
-    xml_str = minidom.parseString(xml_str).toprettyxml(indent="  ")
+    xml_str = minidom.parseString(xml_declaration + xml_str).toprettyxml(indent="  ")
     xml_str = "\n".join([line for line in xml_str.split("\n") if line.strip()])
-    with open("output/final_epg_complete.xml", "w", encoding="gbk") as f:
+    
+    with open("output/final_epg_complete.xml", "w", encoding="utf-8") as f:
         f.write(xml_str)
     print(f"\n🎉 EPG生成完成：output/final_epg_complete.xml（{len(channels)}个频道，{len(programmes)}个节目）")
 
 if __name__ == "__main__":
-    print("="*60 + "\nEPG合并工具（容错增强版）启动\n" + "="*60)
+    print("="*60 + "\nEPG合并工具（编码修复版）启动\n" + "="*60)
     start_total = datetime.now()
     for source in EPG_SOURCES:
         print(f"\n{'='*40} 处理源：{source} {'='*40}")
