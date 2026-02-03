@@ -1,363 +1,166 @@
-import os
-import gzip
-import re
-import time
-import logging
-from typing import List, Dict, Set, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
 import requests
-from lxml import etree
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+import gzip
+import io
+import xml.etree.ElementTree as ET
+import os
+from datetime import datetime
 
-# ===================== 配置区 =====================
-CONFIG_FILE = "config.txt"
-OUTPUT_DIR = "output"
-LOG_FILE = "epg_merge.log"
-MAX_WORKERS = 3  # 并发线程数（可根据需求调整）
-TIMEOUT = 30
-CORE_RETRY_COUNT = 2
-
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-
-# 核心频道配置（新增潍坊本地分类）
-CHANNEL_PRIORITY = [
-    ("山东本地", ["山东", "山东少儿"]),
-    ("潍坊本地", ["潍坊"]),  # 潍坊本地频道优先级
-    ("央视", ["CCTV"]),
-    ("其他卫视", ["卫视", "浙江", "湖南", "江苏", "东方", "北京", "安徽", "广东", "河南", "深圳"])
+# 配置：EPG源列表（包含潍坊本地EPG源）
+EPG_SOURCES = [
+    "https://epg.27481716.xyz/epg.xml",
+    "https://e.erw.cc/all.xml",
+    "https://raw.githubusercontent.com/kule31/xmlgz/main/all.xml.gz",
+    "http://epg.51zmt.top:8000/e.xml",
+    "https://raw.githubusercontent.com/fanmingming/live/main/e.xml",
+    "output/weifang.xml"  # 潍坊本地EPG源（需先运行爬虫生成）
 ]
 
-# 酷9专用ID映射表（新增潍坊频道）
-COOL9_ID_MAPPING = {
-    # 山东本地频道
-    "89": "山东卫视", "221": "山东教育", "381": "山东新闻", 
-    "382": "山东农科", "383": "山东齐鲁", "384": "山东文旅",
-    "385": "山东少儿",
-    # 潍坊本地频道（示例ID，可根据实际调整）
-    "390": "潍坊新闻", "391": "潍坊综合", "392": "潍坊影视", "393": "潍坊生活",
-    # 央视常规频道
-    "1": "CCTV1", "2": "CCTV2", "3": "CCTV3", "4": "CCTV4", 
-    "5": "CCTV5", "6": "CCTV6", "7": "CCTV7", "8": "CCTV8",
-    "9": "CCTV9", "10": "CCTV10",
-    # 4K超高清频道
-    "101": "CCTV4K", "102": "浙江卫视4K", "103": "湖南卫视4K",
-    "104": "东方卫视4K", "105": "北京卫视4K", "106": "广东卫视4K",
-    "107": "深圳卫视4K", "108": "山东卫视4K"
-}
+# 全局存储：频道和节目数据（仅去重，无任何过滤）
+channels = {}  # key: channel_id（唯一标识，避免重复）
+programmes = []  # 所有节目数据
 
-# 国内频道关键词（新增“潍坊”）
-DOMESTIC_KEYWORDS = [
-    "山东", "潍坊", "CCTV", "卫视", "央视", "中国", "东方", "浙江", "湖南", "江苏", "北京",
-    "安徽", "广东", "河南", "深圳", "四川", "重庆", "天津", "湖北", "江西", "河北",
-    "山西", "陕西", "甘肃", "青海", "宁夏", "新疆", "内蒙古", "辽宁", "吉林", "黑龙江",
-    "上海", "福建", "广西", "海南", "贵州", "云南", "西藏", "香港", "澳门", "台湾"
-]
 
-# ==================================================
-
-class EPGGenerator:
-    def __init__(self):
-        self.session = self._create_session()
-        self.channel_ids: Set[str] = set()
-        self.priority_channels = {cat[0]: [] for cat in CHANNEL_PRIORITY}
-        self.other_channels: List = []
-        self.all_programs: List = []
+def fetch_epg_source(url):
+    """抓取单个EPG源（支持普通XML和GZIP压缩XML）"""
+    try:
+        print(f"📥 开始抓取: {url}")
+        start_time = datetime.now()
         
-    def _create_session(self) -> requests.Session:
-        """创建带重试机制的会话"""
-        session = requests.Session()
-        retry_strategy = Retry(
-            total=CORE_RETRY_COUNT + 2,
-            backoff_factor=1.5,
-            status_forcelist=[429, 500, 502, 503, 504],
-        )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/xml, */*",
-            "Accept-Encoding": "gzip, deflate"
-        })
-        return session
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        response = requests.get(url, headers=headers, timeout=20)
+        response.raise_for_status()
 
-    def read_epg_sources(self) -> List[str]:
-        """读取配置文件中的EPG源"""
-        if not os.path.exists(CONFIG_FILE):
-            logging.error(f"配置文件不存在: {CONFIG_FILE}")
-            raise FileNotFoundError(f"找不到配置文件: {CONFIG_FILE}")
-            
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                sources = []
-                for line_num, line in enumerate(f, 1):
-                    line = line.strip()
-                    if line and not line.startswith("#"):
-                        if line.startswith(("http://", "https://")):
-                            sources.append(line)
-                        else:
-                            logging.warning(f"第{line_num}行格式错误，已跳过: {line}")
-                
-                if len(sources) < 3:
-                    logging.warning(f"仅找到{len(sources)}个有效EPG源，建议至少配置3个")
-                
-                return sources[:8]  # 限制最大源数量，避免过度抓取
-                
-        except Exception as e:
-            logging.error(f"读取配置文件失败: {str(e)}")
-            raise
+        # 处理GZIP压缩文件
+        if url.endswith(".gz"):
+            with gzip.GzipFile(fileobj=io.BytesIO(response.content)) as f:
+                xml_content = f.read().decode("utf-8")
+        else:
+            xml_content = response.text
 
-    def clean_xml_content(self, content: str) -> str:
-        """清理XML内容中的无效字符，避免解析报错"""
-        # 移除控制字符和非XML标准字符
-        content_clean = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', content)
-        # 修复常见的XML转义问题
-        content_clean = content_clean.replace('& ', '&amp; ')
-        return content_clean
+        # 解析XML根节点
+        root = ET.fromstring(xml_content)
+        parse_time = (datetime.now() - start_time).total_seconds()
+        print(f"✅ 成功抓取: {url} | 耗时: {parse_time:.2f}s")
+        return root
 
-    def fetch_single_source(self, source: str) -> Tuple[bool, str, any]:
-        """并发获取单个EPG源数据"""
-        try:
-            start_time = time.time()
-            logging.info(f"开始抓取: {source}")
-            
-            response = self.session.get(source, timeout=TIMEOUT)
-            response.raise_for_status()
-            
-            # 处理gzip压缩
-            if source.endswith('.gz'):
-                content = gzip.decompress(response.content).decode('utf-8')
-            else:
-                content = response.text
-                
-            # 清理XML内容，避免解析失败
-            content_clean = self.clean_xml_content(content)
-            xml_tree = etree.fromstring(content_clean.encode('utf-8'))
-            
-            cost_time = time.time() - start_time
-            logging.info(f"成功抓取: {source} | 耗时: {cost_time:.2f}s")
-            return True, source, xml_tree
-            
-        except Exception as e:
-            logging.error(f"抓取失败 {source}: {str(e)}")
-            return False, source, None
+    except Exception as e:
+        print(f"❌ 抓取失败: {url} | 错误: {str(e)}")
+        return None
 
-    def process_channels(self, xml_tree, source: str) -> int:
-        """处理频道数据，含分类、过滤、统计"""
-        channels = xml_tree.xpath("//channel")
-        shandong_count = 0
-        weifang_count = 0
-        shandong_channel_names = []
-        weifang_channel_names = []  # 存储潍坊频道名称
+
+def parse_epg(root, source_url):
+    """解析EPG数据（无任何过滤，仅按channel_id去重）"""
+    # 1. 合并所有频道（仅去重，不筛选）
+    for channel in root.findall(".//channel"):
+        channel_id = channel.get("id")
+        if not channel_id:
+            continue  # 跳过无ID的无效频道
         
-        for channel in channels:
-            cid = channel.get("id", "").strip()
-            if not cid:
-                continue
-                
-            # 应用酷9ID映射（数字ID→名称ID）
-            if cid in COOL9_ID_MAPPING:
-                cid = COOL9_ID_MAPPING[cid]
-                
-            if cid in self.channel_ids:
-                continue  # 跳过重复频道
-                
-            # 获取频道名称
-            display_names = channel.xpath(".//display-name/text()")
-            channel_name = display_names[0].strip() if display_names else ""
-            
-            # 过滤国外频道（仅保留含国内关键词的频道）
-            if not any(kw in channel_name for kw in DOMESTIC_KEYWORDS):
-                continue
-                
-            # 更新频道ID（统一格式）
-            channel.set("id", cid)
-            self.channel_ids.add(cid)
-            
-            # 按优先级分类
-            channel_added = False
-            for cat_name, keywords in CHANNEL_PRIORITY:
-                if any(kw in channel_name for kw in keywords):
-                    self.priority_channels[cat_name].append(channel)
-                    channel_added = True
-                    if "山东" in channel_name:
-                        shandong_count += 1
-                        shandong_channel_names.append(channel_name)
-                    if "潍坊" in channel_name:
-                        weifang_count += 1
-                        weifang_channel_names.append(channel_name)
-                    break
-                    
-            if not channel_added:
-                self.other_channels.append(channel)
-        
-        # 打印山东、潍坊频道列表
-        if shandong_channel_names:
-            logging.info(f"  - 山东本地频道列表: {', '.join(shandong_channel_names)}")
-        if weifang_channel_names:
-            logging.info(f"  - 潍坊本地频道列表: {', '.join(weifang_channel_names)}")
-                
-        return shandong_count + weifang_count
-
-    def process_programs(self, xml_tree):
-        """处理节目单数据，映射酷9频道ID"""
-        programs = xml_tree.xpath("//programme")
-        for program in programs:
-            channel_id = program.get("channel", "")
-            # 节目单频道ID映射（与频道ID保持一致）
-            if channel_id in COOL9_ID_MAPPING:
-                program.set("channel", COOL9_ID_MAPPING[channel_id])
-            self.all_programs.append(program)
-
-    def fetch_all_sources(self, sources: List[str]) -> bool:
-        """并发获取所有EPG源数据并处理"""
-        successful_sources = 0
-        
-        with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(sources))) as executor:
-            future_to_source = {
-                executor.submit(self.fetch_single_source, source): source 
-                for source in sources
+        if channel_id not in channels:
+            # 提取频道名称和URL（无默认过滤）
+            display_name = channel.findtext(".//display-name", default="未知频道")
+            channel_url = channel.findtext(".//url", default=source_url)
+            channels[channel_id] = {
+                "id": channel_id,
+                "name": display_name,
+                "url": channel_url
             }
-            
-            for future in as_completed(future_to_source):
-                source = future_to_source[future]
-                try:
-                    success, _, xml_tree = future.result()
-                    if success and xml_tree is not None:
-                        total_local_count = self.process_channels(xml_tree, source)
-                        self.process_programs(xml_tree)
-                        successful_sources += 1
-                        logging.info(f"处理完成: {source} | 本地频道总数: {total_local_count}个")
-                        
-                except Exception as e:
-                    logging.error(f"处理源数据失败 {source}: {str(e)}")
-        
-        return successful_sources > 0
+            # 标记潍坊频道（方便确认是否抓取成功）
+            if "潍坊" in display_name:
+                print(f"📌 新增潍坊频道：{display_name}（ID：{channel_id}）")
+            else:
+                print(f"➕ 新增频道：{display_name}（ID：{channel_id}）")
+        else:
+            # 频道已存在，跳过重复
+            display_name = channel.findtext(".//display-name", default="未知频道")
+            print(f"🔄 频道已存在（去重）：{display_name}（ID：{channel_id}）")
 
-    def generate_final_xml(self) -> str:
-        """生成最终的EPG XML文件（按优先级排序）"""
-        # 创建XML根节点
-        xml_declare = f'''<?xml version="1.0" encoding="UTF-8"?>
-<tv generator-info-name="optimized-epg-generator" 
-    generator-info-url="https://github.com/fxq12345/epg" 
-    last-update="{time.strftime("%Y%m%d%H%M%S")}">'''
-        
-        root = etree.fromstring(f"{xml_declare}</tv>".encode("utf-8"))
-        
-        # 按优先级添加频道（山东本地→潍坊本地→央视→其他卫视→其他频道）
-        insert_position = 0
-        for category, _ in CHANNEL_PRIORITY:
-            for channel in self.priority_channels[category]:
-                root.insert(insert_position, channel)
-                insert_position += 1
-                
-        # 添加其他国内频道
-        for channel in self.other_channels:
-            root.insert(insert_position, channel)
-            insert_position += 1
-            
-        # 添加所有节目单
-        for program in self.all_programs:
-            root.append(program)
-            
-        return etree.tostring(root, encoding="utf-8", pretty_print=True).decode("utf-8")
+    # 2. 合并所有节目（无任何过滤，仅关联有效频道）
+    for programme in root.findall(".//programme"):
+        channel_id = programme.get("channel")
+        if channel_id in channels:
+            # 提取节目核心信息（保留原始数据，不筛选）
+            prog_data = {
+                "channel_id": channel_id,
+                "start": programme.get("start", ""),
+                "stop": programme.get("stop", ""),
+                "title": programme.findtext(".//title[@lang='zh']", default=programme.findtext(".//title", default="未知节目"))
+            }
+            programmes.append(prog_data)
+            # 可选：打印节目示例（注释后可加快运行速度）
+            # print(f"📺 节目：{channels[channel_id]['name']} - {prog_data['title']}（{prog_data['start']}）")
 
-    def save_epg_files(self, xml_content: str):
-        """保存EPG文件（XML+GZIP），清理旧文件"""
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        
-        # 清理旧文件，避免占用空间
-        for f in os.listdir(OUTPUT_DIR):
-            if f.endswith(('.xml', '.gz', '.log')):
-                try:
-                    os.remove(os.path.join(OUTPUT_DIR, f))
-                except Exception as e:
-                    logging.warning(f"删除旧文件失败 {f}: {str(e)}")
-        
-        # 保存XML文件
-        xml_path = os.path.join(OUTPUT_DIR, "epg.xml")
-        with open(xml_path, "w", encoding="utf-8") as f:
-            f.write(xml_content)
-        xml_size = os.path.getsize(xml_path)
-        
-        # 保存GZIP压缩文件（节省空间，机顶盒支持自动解压）
-        gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
-        with gzip.open(gz_path, "wb") as f:
-            f.write(xml_content.encode("utf-8"))
-        gz_size = os.path.getsize(gz_path)
-        
-        logging.info(f"EPG文件生成完成: XML={xml_size}字节, GZIP={gz_size}字节")
 
-    def print_statistics(self):
-        """打印详细统计报告，方便核对"""
-        total_channels = len(self.channel_ids)
-        total_programs = len(self.all_programs)
-        
-        logging.info("\n" + "="*50)
-        logging.info("📊 EPG生成统计报告")
-        logging.info("="*50)
-        
-        for category, _ in CHANNEL_PRIORITY:
-            count = len(self.priority_channels[category])
-            logging.info(f"  {category}: {count}个频道")
-            # 打印具体频道名称
-            if category in ["山东本地", "潍坊本地"]:
-                channel_names = [ch.xpath(".//display-name/text()")[0].strip() for ch in self.priority_channels[category]]
-                logging.info(f"    具体频道: {', '.join(channel_names)}")
-            
-        other_count = len(self.other_channels)
-        logging.info(f"  其他国内频道: {other_count}个")
-        logging.info(f"  总频道数: {total_channels}个")
-        logging.info(f"  总节目数: {total_programs}个")
-        logging.info("="*50)
+def generate_final_epg():
+    """生成最终EPG文件（包含所有频道和节目，无任何过滤）"""
+    # 创建XML根节点（符合XMLTV标准）
+    tv = ET.Element("tv", {
+        "source-info-url": "多源EPG合并（无过滤）",
+        "source-info-name": "综合EPG源（完整数据）",
+        "generator-info-name": "EPG自动合并工具",
+        "generated-date": datetime.now().strftime("%Y%m%d%H%M%S +0800")
+    })
 
-    def run(self):
-        """主运行方法，统一调度所有流程"""
-        start_time = time.time()
-        logging.info("=== EPG生成开始 ===")
-        
-        try:
-            # 读取配置文件中的EPG源
-            sources = self.read_epg_sources()
-            logging.info(f"读取到{len(sources)}个EPG源")
-            
-            # 并发获取并处理所有源数据
-            if not self.fetch_all_sources(sources):
-                logging.error("所有EPG源获取失败，程序退出")
-                return False
-                
-            # 生成最终的XML内容
-            xml_content = self.generate_final_xml()
-            
-            # 保存文件（XML+GZIP）
-            self.save_epg_files(xml_content)
-            
-            # 输出统计报告
-            self.print_statistics()
-            
-            total_time = time.time() - start_time
-            logging.info(f"=== EPG生成完成! 总耗时: {total_time:.2f}秒 ===")
-            return True
-            
-        except Exception as e:
-            logging.error(f"EPG生成失败: {str(e)}")
-            return False
+    # 添加所有频道（无过滤，按ID顺序排列）
+    for channel_id, chan_info in channels.items():
+        chan_elem = ET.SubElement(tv, "channel", {"id": channel_id})
+        ET.SubElement(chan_elem, "display-name").text = chan_info["name"]
+        ET.SubElement(chan_elem, "url").text = chan_info["url"]
 
-def main():
-    """主函数，程序入口"""
-    generator = EPGGenerator()
-    success = generator.run()
-    exit(0 if success else 1)
+    # 添加所有节目（无过滤，保留原始时间和标题）
+    for prog in programmes:
+        prog_elem = ET.SubElement(tv, "programme", {
+            "start": prog["start"],
+            "stop": prog["stop"],
+            "channel": prog["channel_id"]
+        })
+        ET.SubElement(prog_elem, "title", {"lang": "zh"}).text = prog["title"]
+
+    # 确保输出目录存在
+    os.makedirs("output", exist_ok=True)
+    # 格式化XML（便于阅读，去除多余空行）
+    xml_str = ET.tostring(tv, encoding="utf-8", xml_declaration=True)
+    from xml.dom import minidom
+    xml_str = minidom.parseString(xml_str).toprettyxml(indent="  ")
+    xml_str = os.linesep.join([line for line in xml_str.splitlines() if line.strip()])  # 去除空行
+
+    # 保存最终文件
+    output_path = "output/final_epg_complete.xml"
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(xml_str)
+
+    # 输出统计信息
+    print("\n" + "="*60)
+    print("🎉 EPG文件生成完成！")
+    print(f"📊 统计信息：")
+    print(f"   - 总频道数：{len(channels)} 个（含潍坊、国内、外国频道）")
+    print(f"   - 总节目数：{len(programmes)} 个")
+    print(f"   - 输出文件：{output_path}")
+    print("="*60)
+
 
 if __name__ == "__main__":
-    main()
+    print("="*60)
+    print("🚀 EPG多源合并工具（无任何过滤版）")
+    print("="*60 + "\n")
+    start_total = datetime.now()
+
+    # 1. 遍历所有EPG源，抓取并解析
+    for source in EPG_SOURCES:
+        print(f"\n{'='*40} 处理源：{source} {'='*40}")
+        root = fetch_epg_source(source)
+        if root:
+            parse_epg(root, source)
+
+    # 2. 生成最终完整EPG文件
+    if channels and programmes:
+        generate_final_epg()
+    else:
+        print("\n❌ 未获取到有效EPG数据，请检查源地址或网络连接！")
+
+    # 输出总耗时
+    total_time = (datetime.now() - start_total).total_seconds()
+    print(f"\n⏱️  总运行时间：{total_time:.2f} 秒")
+    print("="*60)
