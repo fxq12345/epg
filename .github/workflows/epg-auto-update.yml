@@ -26,11 +26,11 @@ jobs:
       - name: 安装依赖
         run: |
           pip install --upgrade pip
-          pip install requests beautifulsoup4 lxml urllib3  # 包含所有依赖
+          pip install requests beautifulsoup4 lxml urllib3
 
       - name: 运行潍坊EPG爬虫（失败不中断）
         run: python weifang_epg_spider.py
-        continue-on-error: true  # 关键配置：爬虫失败仍继续执行后续步骤
+        continue-on-error: true
 
       - name: 运行EPG合并脚本
         run: python merge.py
@@ -39,12 +39,12 @@ jobs:
         run: |
           cd output
           mv final_epg_complete.xml epg.xml
-          gzip -f epg.xml  # -f强制覆盖已有文件
+          gzip -f epg.xml  # 酷9适配：保留GZIP压缩格式
 
       - name: 提交更新
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add output/*
-          git commit -m "Auto update EPG: $(date +'%Y-%m-%d %H:%M:%S')" || echo "无更新"
+          git commit -m "Auto update EPG (Ku9适配): $(date +'%Y-%m-%d %H:%M:%S')" || echo "无更新"
           git push origin master --force-with-lease
