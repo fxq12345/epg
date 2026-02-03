@@ -127,3 +127,146 @@ class EPGGenerator:
                 content = gzip.decompress(response.content).decode('utf-8')
             else:
                 content = response.text
+                
+            # 清理XML内容，避免解析失败
+            content_clean = self.clean_xml_content(content)
+            xml_tree = etree.fromstring(content_clean.encode('utf-8'))
+            
+            cost_time = time.time() - start_time
+            logging.info(f"成功抓取: {source} | 耗时: {cost_time:.2f}s")
+            return True, source, xml_tree
+            
+        except Exception as e:
+            logging.error(f"抓取失败 {source}: {str(e)}")
+            return False, source, None
+
+    def process_channels(self, xml_tree, source: str) -> int:
+        """处理频道数据，含分类、统计 - 已移除过滤逻辑"""
+        channels = xml_tree.xpath("//channel")
+        shandong_count = 0
+        
+        for channel in channels:
+            cid = channel.get("id", "").strip()
+            if not cid:
+                continue
+                
+            # 应用酷9ID映射（数字ID→名称ID）
+            if cid in COOL9_ID_MAPPING:
+                cid = COOL9_ID_MAPPING[cid]
+                
+            if cid in self.channel_ids:
+                continue  # 跳过重复频道
+                
+            # 获取频道名称
+            display_names = channel.xpath(".//display-name/text()")
+            channel_name = display_names[0].strip() if display_names else ""
+            
+            # 更新频道ID（统一格式）
+            channel.set("id", cid)
+            self.channel_ids.add(cid)
+            
+            # 按优先级分类
+            channel_added = False
+            for cat_name, keywords in CHANNEL_PRIORITY:
+                if any(kw in channel_name for kw in keywords):
+                    self.priority_channels[cat_name].append(channel)
+                    channel_added = True
+                    if "山东" in channel_name:
+                        shandong_count += 1  # 统计山东本地频道
+                    break
+                    
+            if not channel_added:
+                self.other_channels.append(channel)
+                
+        return shandong_count
+
+    def process_programs(self, xml_tree):
+        """处理节目单数据，映射酷9频道ID"""
+        programs = xml_tree.xpath("//programme")
+        for program in programs:
+            channel_id = program.get("channel", "")
+            # 节目单频道ID映射（与频道ID保持一致）
+            if channel_id in COOL9_ID_MAPPING:
+                program.set("channel", COOL9_ID_MAPPING[channel_id])
+            self.all_programs.append(program)
+
+    def fetch_all_sources(self, sources: List[str]) -> bool:
+        """并发获取所有EPG源数据并处理"""
+        successful_sources = 0
+        
+        with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(sources))) as executor:
+            future_to_source = {
+                executor.submit(self.fetch_single_source, source): source 
+                for source in sources
+            }
+            
+            for future in as_completed(future_to_source):
+                source = future_to_source[future]
+                try:
+                    success, _, xml_tree = future.result()
+                    if success and xml_tree is not None:
+                        shandong_count = self.process_channels(xml_tree, source)
+                        self.process_programs(xml_tree)
+                        successful_sources += 1
+                        logging.info(f"处理完成: {source} | 山东频道: {shandong_count}个")
+                        
+                except Exception as e:
+                    logging.error(f"处理源数据失败 {source}: {str(e)}")
+        
+        return successful_sources > 0
+
+    def generate_final_xml(self) -> str:
+        """生成最终的EPG XML文件（按优先级排序）"""
+        # 创建XML根节点
+        xml_declare = f'''<?xml version="1.0" encoding="UTF-8"?>
+<tv generator-info-name="optimized-epg-generator" 
+    generator-info-url="https://github.com/fxq12345/epg" 
+    last-update="{time.strftime("%Y%m%d%H%M%S")}">'''
+        
+        root = etree.fromstring(f"{xml_declare}</tv>".encode("utf-8"))
+        
+        # 按优先级添加频道（山东本地→央视→其他卫视→其他频道）
+        insert_position = 0
+        for category, _ in CHANNEL_PRIORITY:
+            for channel in self.priority_channels[category]:
+                root.insert(insert_position, channel)
+                insert_position += 1
+                
+        # 添加其他频道
+        for channel in self.other_channels:
+            root.insert(insert_position, channel)
+            insert_position += 1
+            
+        # 添加所有节目单
+        for program in self.all_programs:
+            root.append(program)
+            
+        return etree.tostring(root, encoding="utf-8", pretty_print=True).decode("utf-8")
+
+    def save_epg_files(self, xml_content: str):
+        """保存EPG文件（XML+GZIP），清理旧文件"""
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        
+        # 清理旧文件，避免占用空间
+        for f in os.listdir(OUTPUT_DIR):
+            if f.endswith(('.xml', '.gz', '.log')):
+                try:
+                    os.remove(os.path.join(OUTPUT_DIR, f))
+                except Exception as e:
+                    logging.warning(f"删除旧文件失败 {f}: {str(e)}")
+        
+        # 保存XML文件
+        xml_path = os.path.join(OUTPUT_DIR, "epg.xml")
+        with open(xml_path, "w", encoding="utf-8") as f:
+            f.write(xml_content)
+        xml_size = os.path.getsize(xml_path)
+        
+        # 保存GZIP压缩文件（节省空间，机顶盒支持自动解压）
+        gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
+        with gzip.open(gz_path, "wb") as f:
+            f.write(xml_content.encode("utf-8"))
+        gz_size = os.path.getsize(gz_path)
+        
+        logging.info(f"EPG文件生成完成: XML={xml_size}字节, GZIP={gz_size}字节")
+
+    def print_stat
