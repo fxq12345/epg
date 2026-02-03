@@ -1,59 +1,100 @@
-name: Gitee Auto Update EPG
+# .github/workflows/auto-update-epg.yml
+name: 🚀 Auto Update EPG
+
 on:
+  # 计划任务：每天UTC时间0点和12点（即北京时间8点和20点）运行
   schedule:
-    - cron: '0 0,12 * * *'  # 每天0点、12点自动更新
-  workflow_dispatch:  # 手动触发
+    - cron: '0 0,12 * * *'
+  # 允许在GitHub网页手动触发工作流 [6,7,8](@ref)
+  workflow_dispatch:
+    # 可选：为手动触发添加输入参数，例如选择分支
+    inputs:
+      branch:
+        description: '要构建的分支'
+        required: true
+        default: 'master'
+        type: choice
+        options:
+        - master
+        - develop
+  # 当代码推送到master分支时触发
   push:
-    branches: [ master ]  # 统一为master分支
+    branches: [ master ]
 
 jobs:
-  build:
+  build-and-update:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # 赋予工作流写入仓库内容的权限 [7,8](@ref)
     permissions:
-      contents: write  # 允许提交文件
+      contents: write
 
     steps:
-      - name: 配置Git网络稳定性
-        run: |
-          git config --global http.retry 5
-          git config --global http.lowSpeedLimit 1000
-          git config --global http.lowSpeedTime 60
-
-      - name: 拉取代码
+      # 步骤1：检出代码（根据触发方式动态选择分支）
+      - name: 🛒 Checkout Code
         uses: actions/checkout@v4
         with:
-          ref: master  # 明确拉取master分支
-          fetch-depth: 1
+          # 如果是手动触发且有输入参数，则使用输入的分支，否则使用master
+          ref: ${{ github.event.inputs.branch || 'master' }}
+          fetch-depth: 0 # 获取所有历史记录，方便git操作
 
-      - name: 设置Python
+      # 步骤2：设置Python环境
+      - name: 🐍 Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip' # 缓存pip依赖，加速后续运行
 
-      - name: 安装依赖
+      # 步骤3：安装依赖
+      - name: 📦 Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          # 如果项目有requirements.txt则安装，否则直接安装核心包
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          else
+            pip install requests lxml
+          fi
 
-      - name: 运行EPG生成脚本
+      # 步骤4：运行EPG生成脚本
+      - name: ⚙️ Run EPG Generator
         run: python merge.py
 
-      - name: 验证文件
+      # 步骤5：验证生成的文件
+      - name: ✅ Validate Generated Files
         run: |
+          echo "Checking generated EPG files..."
+          # 检查文件是否存在且大小合理
           if [ ! -f "output/epg.xml" ] || [ $(stat -c%s "output/epg.xml") -lt 100 ]; then
-            echo "❌ epg.xml无效"
+            echo "❌ EPG XML file is invalid or too small"
             exit 1
           fi
           if [ ! -f "output/epg.gz" ] || [ $(stat -c%s "output/epg.gz") -lt 50 ]; then
-            echo "❌ epg.gz无效"
+            echo "❌ EPG GZ file is invalid or too small"
             exit 1
           fi
+          echo "✅ All files validated successfully"
+          echo "File sizes:"
+          ls -la output/
 
-      - name: 提交更新
+      # 步骤6：配置Git并提交更新（仅在master分支且非PR时执行）
+      - name: 💾 Commit Updates
+        # 条件：在master分支上运行，且不是PR事件 [8](@ref)
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add output/*
-          git commit -m "Auto update EPG: $(date +'%Y-%m-%d %H:%M:%S')" || echo "无更新"
-          git push origin master --force
+          
+          # 检查是否有实际更改
+          git status
+          git add output/
+          
+          # 仅在存在更改时提交
+          if git diff-index --quiet HEAD --; then
+            echo "⚠️ No changes to commit"
+          else
+            git commit -m "🤖 Auto-update EPG data: $(date +'%Y-%m-%d %H:%M:%S')"
+            # 使用--force-with-lease比--force更安全 [8](@ref)
+            git push --force-with-lease origin master
+            echo "✅ Changes committed and pushed"
+          fi
