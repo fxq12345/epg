@@ -22,14 +22,24 @@ def fetch_epg_source(source_path):
     try:
         print(f"📥 处理: {source_path}")
         start_time = datetime.now()
-        # 处理本地文件
+        # 处理本地文件（容错优化：潍坊源失败直接返回None，不抛出异常）
         if os.path.exists(source_path):
-            with open(source_path, "r", encoding="utf-8") as f:
-                xml_content = f.read()
-            root = ET.fromstring(xml_content)
-            print(f"✅ 读取本地文件: {source_path} | 耗时: {(datetime.now()-start_time).total_seconds():.2f}s")
-            return root
-        # 处理网络源
+            try:
+                with open(source_path, "r", encoding="utf-8") as f:
+                    xml_content = f.read()
+                # 验证XML格式有效性
+                if not xml_content.strip():
+                    print(f"⚠️  本地文件为空：{source_path}")
+                    return None
+                root = ET.fromstring(xml_content)
+                parse_time = (datetime.now() - start_time).total_seconds()
+                print(f"✅ 读取本地文件: {source_path} | 耗时: {parse_time:.2f}s")
+                return root
+            except Exception as e:
+                # 本地文件（潍坊源）处理失败，仅打印日志，不中断流程
+                print(f"⚠️  本地文件处理失败（不影响其他源）: {source_path} | 错误: {str(e)}")
+                return None
+        # 处理网络源（原有逻辑不变）
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
         response = requests.get(source_path, headers=headers, timeout=20)
         response.raise_for_status()
@@ -39,7 +49,8 @@ def fetch_epg_source(source_path):
         else:
             xml_content = response.text
         root = ET.fromstring(xml_content)
-        print(f"✅ 抓取网络源: {source_path} | 耗时: {(datetime.now()-start_time).total_seconds():.2f}s")
+        parse_time = (datetime.now() - start_time).total_seconds()
+        print(f"✅ 抓取网络源: {source_path} | 耗时: {parse_time:.2f}s")
         return root
     except Exception as e:
         print(f"❌ 处理失败: {source_path} | 错误: {str(e)}")
@@ -48,7 +59,8 @@ def fetch_epg_source(source_path):
 def parse_epg(root, source_path):
     for channel in root.findall(".//channel"):
         channel_id = channel.get("id")
-        if not channel_id: continue
+        if not channel_id:
+            continue
         if channel_id not in channels:
             display_name = channel.findtext(".//display-name", default="未知频道")
             channels[channel_id] = {"id": channel_id, "name": display_name}
@@ -77,7 +89,11 @@ def generate_final_epg():
         chan_elem = ET.SubElement(tv, "channel", {"id": channel_id})
         ET.SubElement(chan_elem, "display-name").text = chan_info["name"]
     for prog in programmes:
-        prog_elem = ET.SubElement(tv, "programme", {"start": prog["start"], "stop": prog["stop"], "channel": prog["channel_id"]})
+        prog_elem = ET.SubElement(tv, "programme", {
+            "start": prog["start"],
+            "stop": prog["stop"],
+            "channel": prog["channel_id"]
+        })
         ET.SubElement(prog_elem, "title", {"lang": "zh"}).text = prog["title"]
     os.makedirs("output", exist_ok=True)
     xml_str = ET.tostring(tv, encoding="utf-8", xml_declaration=True)
@@ -97,4 +113,8 @@ if __name__ == "__main__":
             parse_epg(root, source)
     if channels and programmes:
         generate_final_epg()
-    print(f"\n⏱️  总耗时：{(datetime.now()-start_total).total_seconds():.2f}秒")
+    else:
+        print("\n❌ 未获取到有效EPG数据！")
+    total_time = (datetime.now() - start_total).total_seconds()
+    print(f"\n⏱️  总耗时：{total_time:.2f} 秒")
+    print("="*60)
