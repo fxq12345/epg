@@ -39,12 +39,14 @@ jobs:
         run: |
           cd output
           mv final_epg_complete.xml epg.xml
-          gzip -f epg.xml  # 酷9适配：保留GZIP压缩格式
+          gzip -f epg.xml
+          ls -l  # 验证文件生成
 
       - name: 提交更新
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
+          git pull origin master --rebase
           git add output/*
           git commit -m "Auto update EPG (Ku9适配): $(date +'%Y-%m-%d %H:%M:%S')" || echo "无更新"
           git push origin master --force-with-lease
