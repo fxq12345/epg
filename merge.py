@@ -29,7 +29,7 @@ logging.basicConfig(
     ]
 )
 
-# 核心频道配置（山东本地→央视→其他卫视优先级）
+# 核心频道配置（仅用于优先级排序，不做过滤）
 CHANNEL_PRIORITY = [
     ("山东本地", ["山东"]),
     ("央视", ["CCTV"]),
@@ -50,14 +50,6 @@ COOL9_ID_MAPPING = {
     "104": "东方卫视4K", "105": "北京卫视4K", "106": "广东卫视4K",
     "107": "深圳卫视4K", "108": "山东卫视4K"
 }
-
-# 国内频道关键词（完整覆盖，过滤国外频道）
-DOMESTIC_KEYWORDS = [
-    "山东", "CCTV", "卫视", "央视", "中国", "东方", "浙江", "湖南", "江苏", "北京",
-    "安徽", "广东", "河南", "深圳", "四川", "重庆", "天津", "湖北", "江西", "河北",
-    "山西", "陕西", "甘肃", "青海", "宁夏", "新疆", "内蒙古", "辽宁", "吉林", "黑龙江",
-    "上海", "福建", "广西", "海南", "贵州", "云南", "西藏", "香港", "澳门", "台湾"
-]
 
 # ==================================================
 
@@ -149,7 +141,7 @@ class EPGGenerator:
             return False, source, None
 
     def process_channels(self, xml_tree, source: str) -> int:
-        """处理频道数据，含分类、过滤、统计"""
+        """处理频道数据（关闭过滤，仅去重+优先级排序）"""
         channels = xml_tree.xpath("//channel")
         shandong_count = 0
         
@@ -163,21 +155,17 @@ class EPGGenerator:
                 cid = COOL9_ID_MAPPING[cid]
                 
             if cid in self.channel_ids:
-                continue  # 跳过重复频道
+                continue  # 仅跳过重复频道，不做其他过滤
                 
-            # 获取频道名称
+            # 获取频道名称（用于优先级排序）
             display_names = channel.xpath(".//display-name/text()")
             channel_name = display_names[0].strip() if display_names else ""
             
-            # 过滤国外频道（仅保留含国内关键词的频道）
-            if not any(kw in channel_name for kw in DOMESTIC_KEYWORDS):
-                continue
-                
             # 更新频道ID（统一格式）
             channel.set("id", cid)
             self.channel_ids.add(cid)
             
-            # 按优先级分类
+            # 按优先级分类（不影响是否保留频道，仅排序）
             channel_added = False
             for cat_name, keywords in CHANNEL_PRIORITY:
                 if any(kw in channel_name for kw in keywords):
@@ -244,7 +232,7 @@ class EPGGenerator:
                 root.insert(insert_position, channel)
                 insert_position += 1
                 
-        # 添加其他国内频道
+        # 添加所有其他频道（无过滤，全部保留）
         for channel in self.other_channels:
             root.insert(insert_position, channel)
             insert_position += 1
@@ -256,14 +244,17 @@ class EPGGenerator:
         return etree.tostring(root, encoding="utf-8", pretty_print=True).decode("utf-8")
 
     def save_epg_files(self, xml_content: str):
-        """保存EPG文件（XML+GZIP），清理旧文件"""
+        """保存EPG文件（优化缓存清理：只清理输出目录相关文件，避免误删）"""
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         
-        # 清理旧文件，避免占用空间
+        # 优化缓存清理：仅清理output目录下的EPG相关文件（保留其他可能的必要文件）
+        clean_extensions = ('.xml', '.gz', '.log', '.txt')  # 明确需要清理的文件类型
         for f in os.listdir(OUTPUT_DIR):
-            if f.endswith(('.xml', '.gz', '.log')):
+            file_path = os.path.join(OUTPUT_DIR, f)
+            if f.endswith(clean_extensions) and os.path.isfile(file_path):
                 try:
-                    os.remove(os.path.join(OUTPUT_DIR, f))
+                    os.remove(file_path)
+                    logging.info(f"已清理旧文件: {f}")
                 except Exception as e:
                     logging.warning(f"删除旧文件失败 {f}: {str(e)}")
         
@@ -295,7 +286,7 @@ class EPGGenerator:
             logging.info(f"  {category}: {count}个频道")
             
         other_count = len(self.other_channels)
-        logging.info(f"  其他国内频道: {other_count}个")
+        logging.info(f"  其他频道: {other_count}个")
         logging.info(f"  总频道数: {total_channels}个")
         logging.info(f"  总节目数: {total_programs}个")
         logging.info("="*50)
