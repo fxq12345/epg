@@ -34,24 +34,34 @@ def crawl_channel_epg(channel):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
         
-        # 定位页面日期
-        date_elem = soup.find("div", class_="program_date") or soup.find("h1", class_="program_date")
+        # 动态定位页面日期（兼容多种标签）
+        date_elem = (soup.find("div", class_=re.compile(r'program_date')) 
+                   or soup.find("h1", class_=re.compile(r'program_date'))
+                   or soup.find("span", class_=re.compile(r'date')))
         use_date = date_elem.text.strip()[:10] if date_elem else calc_date
         print(f"✅ 使用日期：{use_date}")
         
-        # 定位节目元素
-        for item in soup.find_all("li", class_="program_item"):
-            time_elem = item.find("span", class_="time")
-            title_elem = item.find("span", class_="name")
+        # 动态定位节目元素（兼容li/div，class含program/item）
+        program_items = (soup.find_all(re.compile(r'li|div'), class_=re.compile(r'program|item')))
+        for item in program_items:
+            # 动态定位时间和标题（兼容多种class）
+            time_elem = (item.find("span", class_=re.compile(r'time'))
+                       or item.find("div", class_=re.compile(r'time')))
+            title_elem = (item.find("span", class_=re.compile(r'name|title'))
+                        or item.find("div", class_=re.compile(r'name|title'))
+                        or item.find("a", class_=re.compile(r'name|title')))
+            
             if time_elem and title_elem:
                 time_str = time_elem.text.strip()
                 title = title_elem.text.strip()
-                start_time = datetime.strptime(f"{use_date} {time_str}", "%Y-%m-%d %H:%M")
-                epg_data.append({
-                    "channel_id": channel["id"],
-                    "start": start_time.strftime("%Y%m%d%H%M%S +0800"),
-                    "title": title
-                })
+                # 过滤无效时间（如空字符串）
+                if len(time_str) >= 5:
+                    start_time = datetime.strptime(f"{use_date} {time_str}", "%Y-%m-%d %H:%M")
+                    epg_data.append({
+                        "channel_id": channel["id"],
+                        "start": start_time.strftime("%Y%m%d%H%M%S +0800"),
+                        "title": title
+                    })
         
         time.sleep(1 + random.random()*1.5)
         print(f"📊 爬取完成：{len(epg_data)}条节目\n")
