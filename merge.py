@@ -5,15 +5,30 @@ import xml.etree.ElementTree as ET
 import os
 from datetime import datetime
 
-# 有效EPG源（酷9适配：保留5个网络源+本地潍坊源）
-EPG_SOURCES = [
-    "https://epg.27481716.xyz/epg.xml",
-    "https://e.erw.cc/all.xml",
-    "https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz",
-    "http://epg.51zmt.top:8000/e.xml",
-    "https://raw.githubusercontent.com/fanmingming/live/main/e.xml",
-    "output/weifang.xml"
-]
+# 初始化EPG源列表（从config.txt读取网络源 + 本地潍坊源）
+EPG_SOURCES = []
+
+def load_epg_sources(config_path="config.txt"):
+    """从配置文件读取网络EPG源"""
+    if not os.path.exists(config_path):
+        print(f"⚠️  配置文件{config_path}不存在，仅加载本地潍坊源")
+        return ["output/weifang.xml"]
+    
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        # 过滤注释和空行，获取有效链接
+        network_sources = [line.strip() for line in lines if line.strip() and not line.strip().startswith("#")]
+        # 追加本地潍坊源
+        network_sources.append("output/weifang.xml")
+        print(f"✅ 从{config_path}加载{len(network_sources)-1}个网络源 + 1个本地源")
+        return network_sources
+    except Exception as e:
+        print(f"⚠️  读取配置文件失败：{str(e)}，仅加载本地潍坊源")
+        return ["output/weifang.xml"]
+
+# 加载EPG源
+EPG_SOURCES = load_epg_sources()
 
 channels = {}
 programmes = []
@@ -22,14 +37,15 @@ def fetch_epg_source(source_path):
     try:
         print(f"📥 处理: {source_path}")
         start_time = datetime.now()
-        # 处理本地文件（酷9适配：GBK编码读取）
+        # 处理本地文件（酷9适配：GBK编码读取 + 空文件检测）
         if os.path.exists(source_path):
             try:
                 # 优先用GBK读取，兼容酷9格式
                 with open(source_path, "r", encoding="gbk") as f:
                     xml_content = f.read()
-                if not xml_content.strip():
-                    print(f"⚠️  本地文件为空：{source_path}")
+                # 检测空文件（仅含<tv></tv>或无内容）
+                if not xml_content.strip() or xml_content.strip() == "<tv></tv>":
+                    print(f"⚠️  本地文件为空，跳过处理：{source_path}")
                     return None
                 root = ET.fromstring(xml_content)
                 parse_time = (datetime.now() - start_time).total_seconds()
@@ -39,8 +55,9 @@ def fetch_epg_source(source_path):
                 # 兼容UTF-8格式的备用方案
                 with open(source_path, "r", encoding="utf-8") as f:
                     xml_content = f.read()
-                if not xml_content.strip():
-                    print(f"⚠️  本地文件为空：{source_path}")
+                # 检测空文件
+                if not xml_content.strip() or xml_content.strip() == "<tv></tv>":
+                    print(f"⚠️  本地文件为空，跳过处理：{source_path}")
                     return None
                 root = ET.fromstring(xml_content)
                 parse_time = (datetime.now() - start_time).total_seconds()
