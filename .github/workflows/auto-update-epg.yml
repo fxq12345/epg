@@ -1,11 +1,11 @@
 # .github/workflows/auto-update-epg.yml
-name: 🚀 Auto Update EPG
+name: 🚀 自动更新EPG
 
 on:
   # 计划任务：每天UTC时间0点和12点（即北京时间8点和20点）运行
   schedule:
     - cron: '0 0,12 * * *'
-  # 允许在GitHub网页手动触发工作流 [6,7,8](@ref)
+  # 允许在GitHub网页手动触发工作流
   workflow_dispatch:
     # 可选：为手动触发添加输入参数，例如选择分支
     inputs:
@@ -15,23 +15,23 @@ on:
         default: 'master'
         type: choice
         options:
-        - master
-        - develop
+          - master
+          - develop
   # 当代码推送到master分支时触发
   push:
     branches: [ master ]
 
 jobs:
-  build-and-update:
+  构建与更新:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # 赋予工作流写入仓库内容的权限 [7,8](@ref)
+    # 赋予工作流写入仓库内容的权限
     permissions:
       contents: write
 
     steps:
       # 步骤1：检出代码（根据触发方式动态选择分支）
-      - name: 🛒 Checkout Code
+      - name: 🛒 检出代码
         uses: actions/checkout@v4
         with:
           # 如果是手动触发且有输入参数，则使用输入的分支，否则使用master
@@ -39,14 +39,14 @@ jobs:
           fetch-depth: 0 # 获取所有历史记录，方便git操作
 
       # 步骤2：设置Python环境
-      - name: 🐍 Set up Python
+      - name: 🐍 设置Python环境
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip' # 缓存pip依赖，加速后续运行
 
       # 步骤3：安装依赖
-      - name: 📦 Install Dependencies
+      - name: 📦 安装依赖
         run: |
           python -m pip install --upgrade pip
           # 如果项目有requirements.txt则安装，否则直接安装核心包
@@ -57,29 +57,29 @@ jobs:
           fi
 
       # 步骤4：运行EPG生成脚本
-      - name: ⚙️ Run EPG Generator
+      - name: ⚙️ 运行EPG生成器
         run: python merge.py
 
       # 步骤5：验证生成的文件
-      - name: ✅ Validate Generated Files
+      - name: ✅ 验证生成的文件
         run: |
-          echo "Checking generated EPG files..."
+          echo "正在检查生成的EPG文件..."
           # 检查文件是否存在且大小合理
           if [ ! -f "output/epg.xml" ] || [ $(stat -c%s "output/epg.xml") -lt 100 ]; then
-            echo "❌ EPG XML file is invalid or too small"
+            echo "❌ EPG XML文件无效或太小"
             exit 1
           fi
           if [ ! -f "output/epg.gz" ] || [ $(stat -c%s "output/epg.gz") -lt 50 ]; then
-            echo "❌ EPG GZ file is invalid or too small"
+            echo "❌ EPG GZ文件无效或太小"
             exit 1
           fi
-          echo "✅ All files validated successfully"
-          echo "File sizes:"
+          echo "✅ 所有文件验证成功"
+          echo "文件大小:"
           ls -la output/
 
       # 步骤6：配置Git并提交更新（仅在master分支且非PR时执行）
-      - name: 💾 Commit Updates
-        # 条件：在master分支上运行，且不是PR事件 [8](@ref)
+      - name: 💾 提交更新
+        # 条件：在master分支上运行，且不是PR事件
         if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
@@ -91,10 +91,10 @@ jobs:
           
           # 仅在存在更改时提交
           if git diff-index --quiet HEAD --; then
-            echo "⚠️ No changes to commit"
+            echo "⚠️ 无更改需要提交"
           else
-            git commit -m "🤖 Auto-update EPG data: $(date +'%Y-%m-%d %H:%M:%S')"
-            # 使用--force-with-lease比--force更安全 [8](@ref)
+            git commit -m "🤖 自动更新EPG数据: $(date +'%Y-%m-%d %H:%M:%S')"
+            # 使用--force-with-lease比--force更安全
             git push --force-with-lease origin master
-            echo "✅ Changes committed and pushed"
+            echo "✅ 更改已提交并推送"
           fi
