@@ -15,7 +15,7 @@ from urllib3.util.retry import Retry
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
 LOG_FILE = "epg_merge.log"
-MAX_WORKERS = 3  # 并发线程数（可根据需求调整）
+MAX_WORKERS = 3
 TIMEOUT = 30
 CORE_RETRY_COUNT = 2
 
@@ -99,7 +99,7 @@ class EPGGenerator:
                 if len(sources) < 3:
                     logging.warning(f"仅找到{len(sources)}个有效EPG源，建议至少配置3个")
                 
-                return sources[:8]  # 限制最大源数量，避免过度抓取
+                return sources[:8]
                 
         except Exception as e:
             logging.error(f"读取配置文件失败: {str(e)}")
@@ -107,9 +107,7 @@ class EPGGenerator:
 
     def clean_xml_content(self, content: str) -> str:
         """清理XML内容中的无效字符，避免解析报错"""
-        # 移除控制字符和非XML标准字符
         content_clean = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', content)
-        # 修复常见的XML转义问题
         content_clean = content_clean.replace('& ', '&amp; ')
         return content_clean
 
@@ -122,13 +120,11 @@ class EPGGenerator:
             response = self.session.get(source, timeout=TIMEOUT)
             response.raise_for_status()
             
-            # 处理gzip压缩
             if source.endswith('.gz'):
                 content = gzip.decompress(response.content).decode('utf-8')
             else:
                 content = response.text
                 
-            # 清理XML内容，避免解析失败
             content_clean = self.clean_xml_content(content)
             xml_tree = etree.fromstring(content_clean.encode('utf-8'))
             
@@ -141,7 +137,7 @@ class EPGGenerator:
             return False, source, None
 
     def process_channels(self, xml_tree, source: str) -> int:
-        """处理频道数据，含分类、统计 - 已移除过滤逻辑"""
+        """处理频道数据 - 已移除过滤逻辑"""
         channels = xml_tree.xpath("//channel")
         shandong_count = 0
         
@@ -150,29 +146,25 @@ class EPGGenerator:
             if not cid:
                 continue
                 
-            # 应用酷9ID映射（数字ID→名称ID）
             if cid in COOL9_ID_MAPPING:
                 cid = COOL9_ID_MAPPING[cid]
                 
             if cid in self.channel_ids:
-                continue  # 跳过重复频道
+                continue
                 
-            # 获取频道名称
             display_names = channel.xpath(".//display-name/text()")
             channel_name = display_names[0].strip() if display_names else ""
             
-            # 更新频道ID（统一格式）
             channel.set("id", cid)
             self.channel_ids.add(cid)
             
-            # 按优先级分类
             channel_added = False
             for cat_name, keywords in CHANNEL_PRIORITY:
                 if any(kw in channel_name for kw in keywords):
                     self.priority_channels[cat_name].append(channel)
                     channel_added = True
                     if "山东" in channel_name:
-                        shandong_count += 1  # 统计山东本地频道
+                        shandong_count += 1
                     break
                     
             if not channel_added:
@@ -181,11 +173,10 @@ class EPGGenerator:
         return shandong_count
 
     def process_programs(self, xml_tree):
-        """处理节目单数据，映射酷9频道ID"""
+        """处理节目单数据"""
         programs = xml_tree.xpath("//programme")
         for program in programs:
             channel_id = program.get("channel", "")
-            # 节目单频道ID映射（与频道ID保持一致）
             if channel_id in COOL9_ID_MAPPING:
                 program.set("channel", COOL9_ID_MAPPING[channel_id])
             self.all_programs.append(program)
@@ -216,8 +207,7 @@ class EPGGenerator:
         return successful_sources > 0
 
     def generate_final_xml(self) -> str:
-        """生成最终的EPG XML文件（按优先级排序）"""
-        # 创建XML根节点
+        """生成最终的EPG XML文件"""
         xml_declare = f'''<?xml version="1.0" encoding="UTF-8"?>
 <tv generator-info-name="optimized-epg-generator" 
     generator-info-url="https://github.com/fxq12345/epg" 
@@ -225,29 +215,25 @@ class EPGGenerator:
         
         root = etree.fromstring(f"{xml_declare}</tv>".encode("utf-8"))
         
-        # 按优先级添加频道（山东本地→央视→其他卫视→其他频道）
         insert_position = 0
         for category, _ in CHANNEL_PRIORITY:
             for channel in self.priority_channels[category]:
                 root.insert(insert_position, channel)
                 insert_position += 1
                 
-        # 添加其他频道
         for channel in self.other_channels:
             root.insert(insert_position, channel)
             insert_position += 1
             
-        # 添加所有节目单
         for program in self.all_programs:
             root.append(program)
             
         return etree.tostring(root, encoding="utf-8", pretty_print=True).decode("utf-8")
 
     def save_epg_files(self, xml_content: str):
-        """保存EPG文件（XML+GZIP），清理旧文件"""
+        """保存EPG文件"""
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         
-        # 清理旧文件，避免占用空间
         for f in os.listdir(OUTPUT_DIR):
             if f.endswith(('.xml', '.gz', '.log')):
                 try:
@@ -255,13 +241,11 @@ class EPGGenerator:
                 except Exception as e:
                     logging.warning(f"删除旧文件失败 {f}: {str(e)}")
         
-        # 保存XML文件
         xml_path = os.path.join(OUTPUT_DIR, "epg.xml")
         with open(xml_path, "w", encoding="utf-8") as f:
             f.write(xml_content)
         xml_size = os.path.getsize(xml_path)
         
-        # 保存GZIP压缩文件（节省空间，机顶盒支持自动解压）
         gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
         with gzip.open(gz_path, "wb") as f:
             f.write(xml_content.encode("utf-8"))
@@ -269,4 +253,54 @@ class EPGGenerator:
         
         logging.info(f"EPG文件生成完成: XML={xml_size}字节, GZIP={gz_size}字节")
 
-    def print_stat
+    def print_statistics(self):
+        """打印详细统计报告"""
+        total_channels = len(self.channel_ids)
+        total_programs = len(self.all_programs)
+        
+        logging.info("\n" + "="*50)
+        logging.info("📊 EPG生成统计报告（无过滤模式）")
+        logging.info("="*50)
+        
+        for category, _ in CHANNEL_PRIORITY:
+            count = len(self.priority_channels[category])
+            logging.info(f"  {category}: {count}个频道")
+            
+        other_count = len(self.other_channels)
+        logging.info(f"  其他频道: {other_count}个")
+        logging.info(f"  总频道数: {total_channels}个")
+        logging.info(f"  总节目数: {total_programs}个")
+        logging.info("="*50)
+
+    def run(self):
+        """主运行方法"""
+        start_time = time.time()
+        logging.info("=== EPG生成开始（无过滤模式） ===")
+        
+        try:
+            sources = self.read_epg_sources()
+            logging.info(f"读取到{len(sources)}个EPG源")
+            
+            if not self.fetch_all_sources(sources):
+                logging.error("所有EPG源获取失败，程序退出")
+                return False
+                
+            xml_content = self.generate_final_xml()
+            self.save_epg_files(xml_content)
+            self.print_statistics()
+            
+            total_time = time.time() - start_time
+            logging.info(f"=== EPG生成完成! 总耗时: {total_time:.2f}秒 ===")
+            return True
+            
+        except Exception as e:
+            logging.error(f"EPG生成失败: {str(e)}")
+            return False
+
+def main():
+    generator = EPGGenerator()
+    success = generator.run()
+    exit(0 if success else 1)
+
+if __name__ == "__main__":
+    main()
