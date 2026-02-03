@@ -1,100 +1,54 @@
-# .github/workflows/auto-update-epg.yml
-name: 🚀 自动更新EPG
+name: 酷9设备EPG自动更新（山东频道优先）
 
-on:
-  # 计划任务：每天UTC时间0点和12点（即北京时间8点和20点）运行
+# 触发条件：定时 + 手动
+trigger:
+  push: 'none'
+  pr: 'none'
+  tag: 'none'
+  # 定时触发（每天 00:00 UTC，对应北京时间 08:00）
   schedule:
-    - cron: '0 0,12 * * *'
-  # 允许在GitHub网页手动触发工作流
-  workflow_dispatch:
-    # 可选：为手动触发添加输入参数，例如选择分支
-    inputs:
-      branch:
-        description: '要构建的分支'
-        required: true
-        default: 'master'
-        type: choice
-        options:
-          - master
-          - develop
-  # 当代码推送到master分支时触发
-  push:
-    branches: [ master ]
+    - cron: '0 0 * * *'
 
-jobs:
-  构建与更新:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    # 赋予工作流写入仓库内容的权限
-    permissions:
-      contents: write
+# 流水线步骤
+steps:
+  - name: 检出代码
+    uses: actions/checkout@v4
+    with:
+      fetch-depth: 0
+      token: ${GITEE_TOKEN}
 
-    steps:
-      # 步骤1：检出代码（根据触发方式动态选择分支）
-      - name: 🛒 检出代码
-        uses: actions/checkout@v4
-        with:
-          # 如果是手动触发且有输入参数，则使用输入的分支，否则使用master
-          ref: ${{ github.event.inputs.branch || 'master' }}
-          fetch-depth: 0 # 获取所有历史记录，方便git操作
+  - name: 设置Python环境
+    uses: actions/setup-python@v5
+    with:
+      python-version: '3.10'
 
-      # 步骤2：设置Python环境
-      - name: 🐍 设置Python环境
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          cache: 'pip' # 缓存pip依赖，加速后续运行
+  - name: 安装依赖
+    run: |
+      python -m pip install --upgrade pip
+      pip install -r requirements.txt || pip install pipenv && pipenv install --deploy
 
-      # 步骤3：安装依赖
-      - name: 📦 安装依赖
-        run: |
-          python -m pip install --upgrade pip
-          # 如果项目有requirements.txt则安装，否则直接安装核心包
-          if [ -f "requirements.txt" ]; then
-            pip install -r requirements.txt
-          else
-            pip install requests lxml
-          fi
+  - name: 运行EPG更新脚本（酷9适配 + 山东频道优先）
+    run: |
+      # 执行主更新脚本，并传入酷9适配和山东频道优先的参数
+      python auto_update_epg.py \
+        --device cool9 \
+        --priority-channel "山东卫视,山东齐鲁,山东综艺,山东生活,山东农科,潍坊综合,潍坊公共" \
+        --output-format xmltv \
+        --output-path output/epg.xml
 
-      # 步骤4：运行EPG生成脚本
-      - name: ⚙️ 运行EPG生成器
-        run: python merge.py
+  - name: 生成酷9专用索引文件
+    run: |
+      cat > output/cool9_epg_index.txt << EOF
+      # 酷9设备EPG索引文件
+      # 优先频道：山东卫视、山东齐鲁、山东综艺、山东生活、山东农科、潍坊综合、潍坊公共
+      # 自动更新时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+      epg_url=https://gitee.com/fxq12345/epg/raw/master/output/epg.xml
+      EOF
 
-      # 步骤5：验证生成的文件
-      - name: ✅ 验证生成的文件
-        run: |
-          echo "正在检查生成的EPG文件..."
-          # 检查文件是否存在且大小合理
-          if [ ! -f "output/epg.xml" ] || [ $(stat -c%s "output/epg.xml") -lt 100 ]; then
-            echo "❌ EPG XML文件无效或太小"
-            exit 1
-          fi
-          if [ ! -f "output/epg.gz" ] || [ $(stat -c%s "output/epg.gz") -lt 50 ]; then
-            echo "❌ EPG GZ文件无效或太小"
-            exit 1
-          fi
-          echo "✅ 所有文件验证成功"
-          echo "文件大小:"
-          ls -la output/
-
-      # 步骤6：配置Git并提交更新（仅在master分支且非PR时执行）
-      - name: 💾 提交更新
-        # 条件：在master分支上运行，且不是PR事件
-        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          
-          # 检查是否有实际更改
-          git status
-          git add output/
-          
-          # 仅在存在更改时提交
-          if git diff-index --quiet HEAD --; then
-            echo "⚠️ 无更改需要提交"
-          else
-            git commit -m "🤖 自动更新EPG数据: $(date +'%Y-%m-%d %H:%M:%S')"
-            # 使用--force-with-lease比--force更安全
-            git push --force-with-lease origin master
-            echo "✅ 更改已提交并推送"
-          fi
+  - name: 提交并推送更新
+    run: |
+      git config --local user.email "gitee-actions[bot]@noreply.gitee.com"
+      git config --local user.name "gitee-actions[bot]"
+      git add output/*.xml output/cool9_epg_index.txt || echo "No files to add"
+      git commit -m "Auto-update EPG for Cool9 (Shandong priority) $(date -u +'%Y-%m-%d %H:%M:%S UTC')" || echo "No changes to commit"
+      git push origin master
