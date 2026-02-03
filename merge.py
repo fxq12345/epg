@@ -25,6 +25,7 @@ def load_epg_sources(config_path="config.txt"):
         return ["output/weifang.xml"]
 
 EPG_SOURCES = load_epg_sources()
+# 改为按名称存储频道（键：频道名称，值：频道信息）
 channels = {}
 programmes = []
 
@@ -35,7 +36,6 @@ def fetch_epg_source(source_path):
         # 处理本地文件
         if os.path.exists(source_path):
             try:
-                # 统一用UTF-8读取（避免编码冲突）
                 with open(source_path, "r", encoding="utf-8") as f:
                     xml_content = f.read()
                 if not xml_content.strip() or xml_content.strip() == "<tv></tv>":
@@ -82,65 +82,83 @@ def fetch_epg_source(source_path):
 
 def parse_epg(root, source_path):
     for channel in root.findall(".//channel"):
-        channel_id = channel.get("id")
-        if not channel_id:
+        # 提取频道名称（核心匹配依据）
+        channel_name = channel.findtext(".//display-name", default="未知频道").strip()
+        if not channel_name:
             continue
-        if not channel_id.isdigit():
+        # 保留原ID（避免冲突），但按名称存储
+        channel_id = channel.get("id")
+        if not channel_id or not channel_id.isdigit():
             import random
             channel_id = str(random.randint(1005, 9999))
-        if channel_id not in channels:
-            display_name = channel.findtext(".//display-name", default="未知频道")
-            channels[channel_id] = {"id": channel_id, "name": display_name}
-            if "潍坊" in display_name:
-                print(f"📌 新增潍坊频道：{display_name}（ID：{channel_id}）")
-            elif "山东" in display_name or "央视" in display_name or "卫视" in display_name:
-                print(f"➕ 新增优先频道：{display_name}（ID：{channel_id}）")
+        # 按名称去重
+        if channel_name not in channels:
+            channels[channel_name] = {"name": channel_name, "id": channel_id}
+            if "潍坊" in channel_name:
+                print(f"📌 新增潍坊频道：{channel_name}（ID：{channel_id}）")
+            elif "山东" in channel_name or "央视" in channel_name or "卫视" in channel_name:
+                print(f"➕ 新增优先频道：{channel_name}（ID：{channel_id}）")
             else:
-                print(f"➕ 新增普通频道：{display_name}（ID：{channel_id}）")
+                print(f"➕ 新增普通频道：{channel_name}（ID：{channel_id}）")
         else:
-            print(f"🔄 频道已存在：{channel.findtext('.//display-name')}（ID：{channel_id}）")
+            print(f"🔄 频道已存在：{channel_name}（ID：{channels[channel_name]['id']}）")
+    # 处理节目：按名称关联频道
     for programme in root.findall(".//programme"):
-        channel_id = programme.get("channel")
-        if channel_id and channel_id.isdigit() and channel_id in channels:
-            programmes.append({
-                "channel_id": channel_id,
-                "start": programme.get("start", ""),
-                "stop": programme.get("stop", ""),
-                "title": programme.findtext(".//title[@lang='zh']", default="未知节目")
-            })
+        prog_channel_id = programme.get("channel")
+        # 找到该ID对应的频道名称
+        prog_channel_name = None
+        for name, info in channels.items():
+            if info["id"] == prog_channel_id:
+                prog_channel_name = name
+                break
+        if not prog_channel_name:
+            continue
+        # 关联节目到频道名称
+        programmes.append({
+            "channel_name": prog_channel_name,
+            "start": programme.get("start", ""),
+            "stop": programme.get("stop", ""),
+            "title": programme.findtext(".//title[@lang='zh']", default="未知节目").strip()
+        })
 
 def generate_final_epg():
     # 频道排序（潍坊→山东→央视→卫视→其他）
-    sorted_channels = []
-    sorted_channels.extend([c for c in channels.values() if c["id"] in ["1001", "1002", "1003", "1004"]])
-    sorted_channels.extend([c for c in channels.values() if "山东" in c["name"] and c["id"] not in ["1001", "1002", "1003", "1004"]])
-    sorted_channels.extend([c for c in channels.values() if "央视" in c["name"] and c not in sorted_channels])
-    sorted_channels.extend([c for c in channels.values() if "卫视" in c["name"] and c not in sorted_channels])
-    sorted_channels.extend([c for c in channels.values() if c not in sorted_channels])
+    sorted_channel_names = []
+    # 1. 潍坊频道（名称含"潍坊"）
+    sorted_channel_names.extend([name for name in channels.keys() if "潍坊" in name])
+    # 2. 山东本地频道（名称含"山东"）
+    sorted_channel_names.extend([name for name in channels.keys() if "山东" in name and name not in sorted_channel_names])
+    # 3. 央视频道（名称含"央视"）
+    sorted_channel_names.extend([name for name in channels.keys() if "央视" in name and name not in sorted_channel_names])
+    # 4. 卫视频道（名称含"卫视"）
+    sorted_channel_names.extend([name for name in channels.keys() if "卫视" in name and name not in sorted_channel_names])
+    # 5. 其他频道
+    sorted_channel_names.extend([name for name in channels.keys() if name not in sorted_channel_names])
     
-    # 生成UTF-8编码的XML（兼容酷9）
+    # 生成UTF-8编码的XML（酷9名称匹配版）
     tv = ET.Element("tv", {
         "source-info-name": "综合EPG源（酷9适配）",
         "generated-date": datetime.now().strftime("%Y%m%d%H%M%S +0800")
     })
-    # 添加XML声明（指定UTF-8编码）
     xml_declaration = '<?xml version="1.0" encoding="UTF-8"?>\n'
     
-    for chan_info in sorted_channels:
-        chan_elem = ET.SubElement(tv, "channel", {"id": chan_info["id"]})
-        ET.SubElement(chan_elem, "display-name").text = chan_info["name"]
+    # 添加频道（按名称+ID）
+    for channel_name in sorted_channel_names:
+        channel_info = channels[channel_name]
+        chan_elem = ET.SubElement(tv, "channel", {"id": channel_info["id"]})
+        ET.SubElement(chan_elem, "display-name").text = channel_name
+    # 添加节目（按名称关联）
     for prog in programmes:
+        prog_channel_id = channels[prog["channel_name"]]["id"]
         prog_elem = ET.SubElement(tv, "programme", {
             "start": prog["start"],
             "stop": prog["stop"],
-            "channel": prog["channel_id"]
+            "channel": prog_channel_id
         })
         ET.SubElement(prog_elem, "title", {"lang": "zh"}).text = prog["title"]
     
     os.makedirs("output", exist_ok=True)
-    # 生成XML内容（UTF-8）
     xml_str = ET.tostring(tv, encoding="utf-8").decode("utf-8")
-    # 拼接声明+内容，格式化
     from xml.dom import minidom
     xml_str = minidom.parseString(xml_declaration + xml_str).toprettyxml(indent="  ")
     xml_str = "\n".join([line for line in xml_str.split("\n") if line.strip()])
@@ -150,7 +168,7 @@ def generate_final_epg():
     print(f"\n🎉 EPG生成完成：output/final_epg_complete.xml（{len(channels)}个频道，{len(programmes)}个节目）")
 
 if __name__ == "__main__":
-    print("="*60 + "\nEPG合并工具（编码修复版）启动\n" + "="*60)
+    print("="*60 + "\nEPG合并工具（酷9名称匹配版）启动\n" + "="*60)
     start_total = datetime.now()
     for source in EPG_SOURCES:
         print(f"\n{'='*40} 处理源：{source} {'='*40}")
