@@ -46,7 +46,13 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
+          # 暂存本地修改，避免拉取冲突
+          git stash
+          # 拉取最新代码
           git pull origin master --rebase
+          # 恢复本地修改
+          git stash pop
+          # 添加并提交
           git add output/*
           git commit -m "Auto update EPG (Ku9适配): $(date +'%Y-%m-%d %H:%M:%S')" || echo "无更新"
           git push origin master --force-with-lease
