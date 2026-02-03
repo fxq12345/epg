@@ -90,7 +90,7 @@ def parse_epg(root, source_path):
         channel_id = channel.get("id")
         if not channel_id or not channel_id.isdigit():
             import random
-            channel_id = str(random.randint(1005, 9999))
+            channel_id = f"wf_{random.randint(1005, 9999)}"
         # 按名称去重
         if channel_name not in channels:
             channels[channel_name] = {"name": channel_name, "id": channel_id}
@@ -147,6 +147,8 @@ def generate_final_epg():
         channel_info = channels[channel_name]
         chan_elem = ET.SubElement(tv, "channel", {"id": channel_info["id"]})
         ET.SubElement(chan_elem, "display-name").text = channel_name
+    # 节目按时间排序
+    programmes.sort(key=lambda x: x["start"])
     # 添加节目（按名称关联）
     for prog in programmes:
         prog_channel_id = channels[prog["channel_name"]]["id"]
