@@ -6,7 +6,7 @@ import os
 import time
 from datetime import datetime, timedelta
 
-# 从config.txt加载EPG源（潍坊源强制优先加载）
+# 从config.txt加载EPG源（优先使用配置文件，无则用默认5个源）
 EPG_SOURCES = []
 DEFAULT_SOURCES = [
     "https://epg.27481716.xyz/epg.xml",
@@ -17,36 +17,38 @@ DEFAULT_SOURCES = [
 ]
 
 def load_epg_sources(config_path="config.txt"):
-    local_weifang_source = "output/weifang.xml"
     if not os.path.exists(config_path):
-        print(f"⚠️  配置文件{config_path}不存在，潍坊源优先+默认5个网络源")
-        return [local_weifang_source] + DEFAULT_SOURCES
+        print(f"⚠️  配置文件{config_path}不存在，使用默认5个网络源+本地潍坊源")
+        return DEFAULT_SOURCES + ["output/weifang.xml"]
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
         network_sources = [line.strip() for line in lines if line.strip() and not line.strip().startswith("#")]
         if not network_sources:
+            print(f"⚠️  配置文件为空，使用默认5个网络源+本地潍坊源")
             network_sources = DEFAULT_SOURCES
-        return [local_weifang_source] + network_sources
+        network_sources.append("output/weifang.xml")
+        print(f"✅ 从{config_path}加载{len(network_sources)-1}个网络源 + 1个本地源")
+        return network_sources
     except Exception as e:
-        print(f"⚠️  读取配置文件失败：{str(e)}，潍坊源优先+默认5个网络源")
-        return [local_weifang_source] + DEFAULT_SOURCES
+        print(f"⚠️  读取配置文件失败：{str(e)}，使用默认5个网络源+本地潍坊源")
+        return DEFAULT_SOURCES + ["output/weifang.xml"]
 
 EPG_SOURCES = load_epg_sources()
 channels = {}
 programmes = []
 
-# 潍坊本地频道（固定ID，永不覆盖）
+# 潍坊本地频道名称+酷9兼容ID映射
 WEIFANG_CHANNELS = {
-    "潍坊新闻综合频道": {"id": "wf_0001"},
-    "潍坊经济生活": {"id": "wf_0002"},
-    "潍坊公共": {"id": "wf_0003"},
-    "潍坊科教文化": {"id": "wf_0004"}
+    "潍坊新闻综合频道": "1001",
+    "潍坊经济生活": "1002",
+    "潍坊公共": "1003",
+    "潍坊科教文化": "1004"
 }
 
-# 通用节目补全数据
+# 通用节目补全数据（适配所有常见频道类型）
 GENERAL_PROG_DATA = [
-    # 潍坊本地频道（固定节目）
+    # 潍坊本地频道
     {"channel_name": "潍坊新闻综合频道", "time": "07:00", "title": "潍坊新闻早班车", "duration": 60},
     {"channel_name": "潍坊新闻综合频道", "time": "08:00", "title": "生活帮", "duration": 60},
     {"channel_name": "潍坊新闻综合频道", "time": "12:00", "title": "正午新闻", "duration": 30},
@@ -75,29 +77,21 @@ def fetch_epg_source(source_path):
     try:
         print(f"📥 处理: {source_path}")
         start_time = datetime.now()
-        # 处理本地潍坊源（特殊保护）
-        if source_path == "output/weifang.xml":
+        # 处理本地文件
+        if os.path.exists(source_path):
             try:
                 with open(source_path, "r", encoding="utf-8") as f:
                     xml_content = f.read()
                 if not xml_content.strip() or xml_content.strip() == "<tv></tv>":
-                    print(f"⚠️  潍坊源文件为空，使用内置默认潍坊节目")
-                    tv = ET.Element("tv")
-                    for chan_name, chan_info in WEIFANG_CHANNELS.items():
-                        chan_elem = ET.SubElement(tv, "channel", {"id": chan_info["id"]})
-                        ET.SubElement(chan_elem, "display-name").text = chan_name
-                    xml_content = ET.tostring(tv, encoding="utf-8").decode("utf-8")
+                    print(f"⚠️  本地文件为空，跳过处理：{source_path}")
+                    return None
                 root = ET.fromstring(xml_content)
                 parse_time = (datetime.now() - start_time).total_seconds()
-                print(f"✅ 读取潍坊源（优先保护）：{source_path} | 耗时: {parse_time:.2f}s")
+                print(f"✅ 读取本地文件(UTF-8)：{source_path} | 耗时: {parse_time:.2f}s")
                 return root
             except Exception as e:
-                print(f"⚠️  潍坊源处理失败，使用内置默认数据：{e}")
-                tv = ET.Element("tv")
-                for chan_name, chan_info in WEIFANG_CHANNELS.items():
-                    chan_elem = ET.SubElement(tv, "channel", {"id": chan_info["id"]})
-                    ET.SubElement(chan_elem, "display-name").text = chan_name
-                return tv
+                print(f"⚠️  本地文件处理失败：{source_path} | 错误: {str(e)}")
+                return None
         # 处理网络源
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
         max_retries = 3
@@ -112,8 +106,7 @@ def fetch_epg_source(source_path):
                     print(f"⚠️  网络源重试{retry+1}/{max_retries}：{str(e)}")
                     time.sleep(5)
                 else:
-                    print(f"❌ 网络源最终失败，跳过：{source_path}")
-                    return None
+                    raise e
         # 编码适配
         try:
             if source_path.endswith(".gz"):
@@ -128,7 +121,7 @@ def fetch_epg_source(source_path):
             return None
         xml_content = xml_content.replace("\x00", "").strip()
         root = ET.fromstring(xml_content)
-        # 统计当天节目
+        # 替换XPath 2.0语法，改用Python逻辑
         today = datetime.now().date().strftime("%Y%m%d")
         today_prog_count = 0
         for prog in root.findall(".//programme"):
@@ -136,12 +129,12 @@ def fetch_epg_source(source_path):
             if start.startswith(today):
                 today_prog_count += 1
         if today_prog_count < 3:
-            print(f"⚠️  网络源当天节目过少（{today_prog_count}条），后续补全：{source_path}")
+            print(f"⚠️  当天节目数量过少（仅{today_prog_count}条），后续将自动补全：{source_path}")
         parse_time = (datetime.now() - start_time).total_seconds()
-        print(f"✅ 读取网络源：{source_path} | 耗时: {parse_time:.2f}s")
+        print(f"✅ 抓取网络源: {source_path} | 耗时: {parse_time:.2f}s")
         return root
     except Exception as e:
-        print(f"❌ 源处理失败，跳过：{source_path} | 错误: {str(e)}")
+        print(f"❌ 处理失败: {source_path} | 错误: {str(e)}")
         return None
 
 def parse_epg(root, source_path):
@@ -156,21 +149,24 @@ def parse_epg(root, source_path):
         if not channel_name:
             channel_name = f"未知频道_{len(channels)+1}"
         
-        # 潍坊频道特殊处理：固定ID，强制保留
+        # 特殊保护：潍坊本地频道（分配酷9兼容纯数字ID）
         if channel_name in WEIFANG_CHANNELS:
-            chan_info = WEIFANG_CHANNELS[channel_name]
-            channels[channel_name] = {"name": channel_name, "id": chan_info["id"]}
-            print(f"🔒 锁定潍坊频道：{channel_name}（固定ID：{chan_info['id']}）")
+            channel_id = WEIFANG_CHANNELS[channel_name]  # 直接使用预定义的纯数字ID
+            if channel_name not in channels:
+                channels[channel_name] = {"name": channel_name, "id": channel_id}
+                print(f"📌 新增潍坊频道（酷9兼容ID）：{channel_name}（ID：{channel_id}）")
+            else:
+                print(f"🔄 潍坊频道已存在（酷9兼容ID）：{channel_name}（ID：{channels[channel_name]['id']}）")
             continue
         
-        # 其他频道去重处理
+        # 其他频道正常进行标准化去重
         channel_name_normalized = channel_name.strip().lower()
         existing_name = next((name for name in channels.keys() if name.strip().lower() == channel_name_normalized), None)
         if existing_name:
-            print(f"🔄 频道已存在，跳过重复：{channel_name} → {existing_name}")
+            print(f"🔄 频道已存在（标准化）：{channel_name} → {existing_name}（ID：{channels[existing_name]['id']}）")
             continue
         
-        # 网络源频道ID
+        # 处理其他频道ID
         channel_id = channel.get("id")
         if not channel_id or not channel_id.isdigit():
             import random
@@ -178,26 +174,31 @@ def parse_epg(root, source_path):
         else:
             channel_id = f"net_{channel_id}"
         
-        channels[channel_name] = {"name": channel_name, "id": channel_id}
-        if "山东" in channel_name or "央视" in channel_name or "卫视" in channel_name:
-            print(f"➕ 新增优先频道：{channel_name}（ID：{channel_id}）")
+        if channel_name not in channels:
+            channels[channel_name] = {"name": channel_name, "id": channel_id}
+            if "山东" in channel_name or "央视" in channel_name or "卫视" in channel_name:
+                print(f"➕ 新增优先频道：{channel_name}（ID：{channel_id}）")
+            else:
+                print(f"➕ 新增普通频道：{channel_name}（ID：{channel_id}）")
         else:
-            print(f"➕ 新增普通频道：{channel_name}（ID：{channel_id}）")
+            print(f"🔄 频道已存在：{channel_name}（ID：{channels[channel_name]['id']}）")
     
     # 处理节目
     for programme in root.findall(".//programme"):
         prog_channel_id = programme.get("channel")
         if not prog_channel_id:
             continue
-        # 匹配频道（优先潍坊固定ID）
+        # 匹配频道名称（兼容潍坊频道和其他频道）
         prog_channel_name = None
-        for chan_name, chan_info in WEIFANG_CHANNELS.items():
-            if chan_info["id"] == prog_channel_id:
-                prog_channel_name = chan_name
+        # 先匹配潍坊频道（纯数字ID）
+        for name, info in channels.items():
+            if info["id"] == prog_channel_id:
+                prog_channel_name = name
                 break
+        # 再匹配其他频道
         if not prog_channel_name:
             for name, info in channels.items():
-                if info["id"] == prog_channel_id or info["id"] == f"net_{prog_channel_id}":
+                if info["id"] == f"net_{prog_channel_id}":
                     prog_channel_name = name
                     break
         if not prog_channel_name:
@@ -246,7 +247,7 @@ def fill_missing_today_programs():
                     "title": prog["title"]
                 })
             if matched_progs:
-                print(f"🔧 补全当天节目：{channel_name}（{len(matched_progs)}个）")
+                print(f"🔧 补全频道当天节目：{channel_name}（{len(matched_progs)}个）")
             else:
                 default_progs = [
                     {"time": "08:00", "title": "早间节目", "duration": 60},
@@ -261,39 +262,39 @@ def fill_missing_today_programs():
                         "stop": (start + timedelta(minutes=prog["duration"])).strftime("%Y%m%d%H%M%S +0800"),
                         "title": prog["title"]
                     })
-                print(f"🔧 补全当天节目（通用模板）：{channel_name}")
+                print(f"🔧 补全频道当天节目（通用模板）：{channel_name}")
     today_prog_count_after = len([p for p in programmes if p["start"].startswith(today)])
-    print(f"📈 当天节目补全完成：{today_prog_count_before}条 → {today_prog_count_after}条")
+    print(f"📈 当天节目补全：{today_prog_count_before}条 → {today_prog_count_after}条")
 
 def generate_final_epg():
-    # 频道排序：潍坊频道强制置顶
+    # 频道排序（潍坊频道优先）
     sorted_channel_names = list(WEIFANG_CHANNELS.keys()) + [
         name for name in channels.keys() if name not in WEIFANG_CHANNELS
     ]
     
     # 生成XML
     tv = ET.Element("tv", {
-        "source-info-name": "综合EPG源（酷9适配+潍坊锁定）",
+        "source-info-name": "综合EPG源（酷9适配+全源补全）",
         "generated-date": datetime.now().strftime("%Y%m%d%H%M%S +0800"),
         "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance"
     })
     xml_declaration = '<?xml version="1.0" encoding="UTF-8"?>\n'
     
-    # 添加频道（潍坊频道增加多备用名）
+    # 添加频道
     for channel_name in sorted_channel_names:
+        if channel_name not in channels:
+            continue
         channel_info = channels[channel_name]
         chan_elem = ET.SubElement(tv, "channel", {"id": channel_info["id"]})
-        # 主名称
         ET.SubElement(chan_elem, "display-name").text = channel_name
-        # 潍坊频道适配酷9匹配
+        # 潍坊频道添加备用名（增强酷9匹配）
         if channel_name in WEIFANG_CHANNELS:
             ET.SubElement(chan_elem, "display-name").text = channel_name.replace("频道", "")
-            ET.SubElement(chan_elem, "display-name").text = channel_name.replace("潍坊", "")
         # 其他频道适配
         elif "CCTV" in channel_name:
             ET.SubElement(chan_elem, "display-name").text = channel_name.replace("CCTV", "央视")
-        elif "卫视" in channel_name:
-            ET.SubElement(chan_elem, "display-name").text = channel_name.replace("卫视", "")
+        elif "卫视" in channel_name and not channel_name.endswith("卫视"):
+            ET.SubElement(chan_elem, "display-name").text = channel_name + "卫视"
     
     # 节目去重排序
     programmes.sort(key=lambda x: (x["channel_name"], x["start"]))
@@ -314,11 +315,10 @@ def generate_final_epg():
             "channel": prog_channel_id
         })
         ET.SubElement(prog_elem, "title", {"lang": "zh"}).text = prog["title"]
-        # 补充节目描述
         if "新闻" in prog["title"]:
-            ET.SubElement(prog_elem, "desc", {"lang": "zh"}).text = "权威新闻资讯"
+            ET.SubElement(prog_elem, "desc", {"lang": "zh"}).text = "权威新闻资讯，及时播报热点"
         elif "剧场" in prog["title"]:
-            ET.SubElement(prog_elem, "desc", {"lang": "zh"}).text = "精彩影视内容"
+            ET.SubElement(prog_elem, "desc", {"lang": "zh"}).text = "精彩影视剧集，尽享视听盛宴"
     
     # 保存文件
     os.makedirs("output", exist_ok=True)
@@ -329,10 +329,10 @@ def generate_final_epg():
     
     with open("output/final_epg_complete.xml", "w", encoding="utf-8") as f:
         f.write(xml_str)
-    print(f"\n🎉 EPG生成完成：{len(channels)}个频道，{len(unique_progs)}个节目")
+    print(f"\n🎉 EPG生成完成：output/final_epg_complete.xml（{len(channels)}个频道，{len(unique_progs)}个节目）")
 
 if __name__ == "__main__":
-    print("="*60 + "\nEPG合并工具（酷9适配+潍坊锁定版）启动\n" + "="*60)
+    print("="*60 + "\nEPG合并工具（酷9适配+潍坊ID修复版）启动\n" + "="*60)
     start_total = datetime.now()
     for source in EPG_SOURCES:
         print(f"\n{'='*40} 处理源：{source} {'='*40}")
