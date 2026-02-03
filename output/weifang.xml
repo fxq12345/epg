@@ -1,0 +1,19 @@
+<?xml version="1.0" ?>
+<tv source-info-url="https://m.tvmao.com" source-info-name="TVmao-潍坊专属EPG" generator-info-name="潍坊EPG自动爬虫" generated-date="20260203023744 +0800">
+  <channel id="SDWF-SDWF1">
+    <display-name>潍坊新闻综合频道</display-name>
+    <url>https://m.tvmao.com/program/SDWF-SDWF1-w3.html</url>
+  </channel>
+  <channel id="SDWF-SDWF3">
+    <display-name>潍坊生活频道</display-name>
+    <url>https://m.tvmao.com/program/SDWF-SDWF3-w3.html</url>
+  </channel>
+  <channel id="SDWF-SDWF2">
+    <display-name>潍坊公共频道</display-name>
+    <url>https://m.tvmao.com/program/SDWF-SDWF2-w3.html</url>
+  </channel>
+  <channel id="SDWF-SDWF4">
+    <display-name>潍坊科教频道</display-name>
+    <url>https://m.tvmao.com/program/SDWF-SDWF4-w3.html</url>
+  </channel>
+</tv>
