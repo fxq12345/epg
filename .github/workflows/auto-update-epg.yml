@@ -1,71 +1,63 @@
-name: Gitee Auto Update EPG
+name: EPG自动更新
+
 on:
-  # 定时自动更新（每天0点、12点UTC，对应北京时间8点、20点）
   schedule:
-    - cron: '0 0,12 * * *'
-  # 手动触发（Actions页面可见“Run workflow”按钮）
-  workflow_dispatch:
-  # 代码提交到master分支时触发
-  push:
-    branches: [ master ]
+    - cron: '0 0 * * *'  # 每天UTC时间0点（北京时间8点）自动运行
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
-  build:
+  build-epg:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: write  # 授予提交文件的权限
-
     steps:
-      - name: 配置Git网络稳定性
-        run: |
-          git config --global http.retry 5
-          git config --global http.lowSpeedLimit 1000
-          git config --global http.lowSpeedTime 60
-
-      - name: 拉取完整代码（避免冲突）
+      - name: 拉取代码仓库
         uses: actions/checkout@v4
-        with:
-          ref: master
-          fetch-depth: 0  # 拉取全部提交历史，解决rebase依赖
 
-      - name: 设置Python环境
+      - name: 配置Python环境
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.10'  # 稳定兼容版本
+          cache: 'pip'
 
       - name: 安装依赖包
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install requests lxml
 
-      - name: 运行EPG生成脚本
-        run: python merge.py
+      - name: 运行潍坊本地EPG生成脚本
+        run: python weifang_epg_spider.py  # 先生成潍坊本地EPG文件
+        env:
+          PYTHONIOENCODING: utf-8  # 避免中文编码问题
 
-      - name: 验证生成的EPG文件
+      - name: 运行EPG合并脚本
+        run: python main.py  # 替换为你的合并脚本实际文件名（如epg_merge.py）
+        env:
+          PYTHONIOENCODING: utf-8
+
+      - name: 检查输出文件
         run: |
-          if [ ! -f "output/epg.xml" ] || [ $(stat -c%s "output/epg.xml") -lt 100 ]; then
-            echo "❌ epg.xml文件无效或过小"
+          cd output
+          ls -l  # 查看生成的文件
+          # 检查合并脚本生成的目标文件（与脚本中save_files方法一致）
+          if [ ! -f "epg.xml" ] || [ ! -f "epg.gz" ]; then
+            echo "❌ 目标文件生成失败"
             exit 1
-          fi
-          if [ ! -f "output/epg.gz" ] || [ $(stat -c%s "output/epg.gz") -lt 50 ]; then
-            echo "❌ epg.gz文件无效或过小"
-            exit 1
+          else
+            echo "✅ 目标文件生成成功"
           fi
 
-      - name: 提交更新（彻底解决冲突）
+      - name: 提交更新到仓库
         run: |
-          # 配置Git提交身份
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          
-          # 暂存本地修改，拉取远程代码后恢复
-          git add output/*
-          git stash
-          git pull origin master --rebase
-          git stash pop
-          
-          # 提交并推送
-          git add output/*
-          git commit -m "Auto update EPG: $(date +'%Y-%m-%d %H:%M:%S')" || echo "无新内容需提交"
-          git push origin master
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          # 提交合并后的最终文件（与脚本输出一致）
+          git add output/epg.xml output/epg.gz epg_merge.log
+          # 仅在文件有变化时提交，避免空提交
+          git diff --quiet && git diff --staged --quiet || git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
+          git push origin main  # 分支名请根据实际修改（如main→master）
+
+      - name: 清理工作目录
+        if: always()
+        run: |
+          rm -rf __pycache__
+          rm -f epg_merge.log
+          rm -rf output/__pycache__
