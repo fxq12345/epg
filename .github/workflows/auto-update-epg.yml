@@ -1,9 +1,9 @@
-name: EPG自动更新（酷9适配版）
+name: EPG自动更新（酷9适配版·含潍坊本地）
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 每天北京时间8点运行
-  workflow_dispatch:  # 允许手动触发
+    - cron: '0 0 * * *'
+  workflow_dispatch:
 
 jobs:
   build-epg:
@@ -27,7 +27,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests lxml
 
-      - name: 运行EPG合并脚本
+      - name: 运行潍坊本地EPG生成脚本
+        run: python weifang_epg_spider.py
+        env:
+          PYTHONIOENCODING: utf-8
+        continue-on-error: true  # 本地源失败不中断
+
+      - name: 运行EPG合并脚本（含本地+网络源）
         run: python merge.py
         env:
           PYTHONIOENCODING: utf-8
@@ -47,11 +53,11 @@ jobs:
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git add output/epg.xml output/epg.gz epg_merge.log
+          git add output/epg.xml output/epg.gz epg_merge.log weifang_epg.log
           git diff --quiet && git diff --staged --quiet || git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
           git fetch origin master
           git reset --hard origin/master
-          git add output/epg.xml output/epg.gz epg_merge.log
+          git add output/epg.xml output/epg.gz epg_merge.log weifang_epg.log
           git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
           git push origin master --force
 
@@ -59,5 +65,5 @@ jobs:
         if: always()
         run: |
           rm -rf __pycache__
-          rm -f epg_merge.log
+          rm -f epg_merge.log weifang_epg.log
           rm -rf output/__pycache__
