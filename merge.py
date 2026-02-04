@@ -5,10 +5,7 @@ import time
 import logging
 from typing import List, Dict, Set, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
-import xml.etree.ElementTree as ET
-from xml.dom import minidom
-
+from datetime import datetime
 import requests
 from lxml import etree
 from requests.adapters import HTTPAdapter
@@ -31,37 +28,6 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-
-# 高清频道到标清频道的映射（如果高清频道没有节目单，使用标清频道节目单）
-HD_TO_SD_MAPPING = {
-    "CCTV1高清": "CCTV1",
-    "CCTV2高清": "CCTV2", 
-    "CCTV3高清": "CCTV3",
-    "CCTV4高清": "CCTV4",
-    "CCTV5高清": "CCTV5",
-    "CCTV6高清": "CCTV6",
-    "CCTV7高清": "CCTV7",
-    "CCTV8高清": "CCTV8",
-    "CCTV9高清": "CCTV9",
-    "CCTV10高清": "CCTV10",
-    "CCTV11高清": "CCTV11",
-    "CCTV12高清": "CCTV12",
-    "CCTV13高清": "CCTV13",
-    "CCTV14高清": "CCTV14",
-    "CCTV15高清": "CCTV15",
-    "CCTV16高清": "CCTV16",
-    "CCTV17高清": "CCTV17",
-    "CCTV4K": "CCTV4",
-    "北京卫视4K": "北京卫视",
-    "湖南卫视4K": "湖南卫视",
-    "浙江卫视4K": "浙江卫视",
-    "江苏卫视4K": "江苏卫视",
-    "东方卫视4K": "东方卫视",
-    "广东卫视4K": "广东卫视",
-    "深圳卫视4K": "深圳卫视",
-    "山东卫视4K": "山东卫视"
-}
-
 # ==================================================
 
 class EPGGenerator:
@@ -169,38 +135,6 @@ class EPGGenerator:
                 self.channel_programs[channel_id].append(program)
                 self.all_programs.append(program)
 
-    def enhance_hd_channels(self):
-        """增强高清频道：如果高清频道没有节目单，使用标清频道的节目单"""
-        logging.info("🔧 增强高清频道节目单...")
-        enhanced_count = 0
-        
-        for hd_channel, sd_channel in HD_TO_SD_MAPPING.items():
-            # 如果高清频道存在但没有节目单，且标清频道有节目单
-            if (hd_channel in self.channel_ids and 
-                hd_channel not in self.channel_programs and 
-                sd_channel in self.channel_programs and 
-                self.channel_programs[sd_channel]):
-                
-                logging.info(f"  ✅ {hd_channel} ← {sd_channel}")
-                sd_programs = self.channel_programs[sd_channel]
-                
-                # 复制标清频道的节目单到高清频道
-                for program in sd_programs:
-                    # 深拷贝节目元素
-                    program_str = etree.tostring(program, encoding='unicode')
-                    new_program = etree.fromstring(program_str)
-                    new_program.set("channel", hd_channel)
-                    self.all_programs.append(new_program)
-                    
-                self.channel_programs[hd_channel] = [etree.fromstring(etree.tostring(p, encoding='unicode')) 
-                                                   for p in sd_programs]
-                for p in self.channel_programs[hd_channel]:
-                    p.set("channel", hd_channel)
-                    
-                enhanced_count += 1
-        
-        logging.info(f"✅ 增强了{enhanced_count}个高清频道的节目单")
-
     def fetch_and_process_all_sources(self, sources: List[str]) -> bool:
         """获取并处理所有EPG源"""
         successful_sources = 0
@@ -219,11 +153,7 @@ class EPGGenerator:
                 except Exception as e:
                     logging.error(f"处理失败 {source}: {str(e)[:80]}")
         
-        if successful_sources > 0:
-            self.enhance_hd_channels()
-            return True
-        
-        return False
+        return successful_sources > 0
 
     def generate_final_xml(self) -> str:
         """生成最终的EPG XML文件"""
@@ -276,24 +206,18 @@ class EPGGenerator:
         total_channels = len(self.channel_ids)
         total_programs = len(self.all_programs)
         
-        # 统计高清频道
-        hd_channels = [c for c in self.channel_ids if any(x in c for x in ['高清', '4K', 'HD'])]
-        hd_with_programs = len([c for c in hd_channels if c in self.channel_programs and self.channel_programs[c]])
-        
         logging.info("\n" + "="*50)
         logging.info("📊 EPG统计报告")
         logging.info("="*50)
         logging.info(f"总频道数: {total_channels}")
         logging.info(f"总节目数: {total_programs}")
-        logging.info(f"高清/4K频道: {len(hd_channels)}个")
-        logging.info(f"有节目单的高清频道: {hd_with_programs}个")
         
         # 显示没有节目单的频道
         channels_without_programs = [c for c in self.channel_ids 
                                    if c not in self.channel_programs or not self.channel_programs[c]]
         if channels_without_programs:
             logging.info(f"无节目单的频道: {len(channels_without_programs)}个")
-            for channel in channels_without_programs[:10]:  # 只显示前10个
+            for channel in channels_without_programs[:10]:
                 logging.info(f"  - {channel}")
         
         logging.info("="*50)
