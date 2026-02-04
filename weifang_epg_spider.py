@@ -1,227 +1,84 @@
 import os
-import gzip
-import re
 import time
 import logging
-from typing import List, Dict, Set, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 from lxml import etree
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
-# ===================== 配置区 =====================
-CONFIG_FILE = "config.txt"
+# 配置区
 OUTPUT_DIR = "output"
-LOG_FILE = "epg_merge.log"
-MAX_WORKERS = 5  # 改为5（匹配5条源，同时抓取）
-TIMEOUT = 30
-CORE_RETRY_COUNT = 2
-# 本地潍坊EPG文件路径
-LOCAL_WEIFANG_EPG = os.path.join(OUTPUT_DIR, "weifang.xml")
+LOG_FILE = "weifang_epg.log"
+# 潍坊本地频道配置
+WEIFANG_CHANNELS = [
+    {"id": "1001", "name": "潍坊新闻综合频道", "alias": "潍坊新闻"},
+    {"id": "1002", "name": "潍坊经济生活频道", "alias": "潍坊经济生活"},
+    {"id": "1003", "name": "潍坊公共频道", "alias": "潍坊公共"},
+    {"id": "1004", "name": "潍坊科教文化频道", "alias": "潍坊科教文化"},
+    {"id": "1008", "name": "寿光蔬菜频道", "alias": "寿光蔬菜"},
+    {"id": "1009", "name": "昌乐综合频道", "alias": "昌乐综合"},
+    {"id": "1011", "name": "奎文娱乐频道", "alias": "奎文娱乐"}
+]
 
-# 配置日志（确保实时输出）
+# 配置日志
 logging.basicConfig(
-    level=logging.INFO,  # 降低日志级别，减少冗余
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(LOG_FILE, encoding='utf-8'),
         logging.StreamHandler()
     ],
-    force=True  # 强制覆盖默认配置
+    force=True
 )
-# ==================================================
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-class EPGGenerator:
-    def __init__(self):
-        self.session = self._create_session()
-        self.channel_ids: Set[str] = set()
-        self.all_channels: List = []
-        self.all_programs: List = []
-        self.channel_programs: Dict[str, List] = {}
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        
-    def _create_session(self) -> requests.Session:
-        session = requests.Session()
-        retry_strategy = Retry(
-            total=CORE_RETRY_COUNT + 2,
-            backoff_factor=1.5,
-            status_forcelist=[429, 500, 502, 503, 504],
-        )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/xml, */*",
-            "Accept-Encoding": "gzip, deflate"
-        })
-        return session
 
-    def read_epg_sources(self) -> List[str]:
-        if not os.path.exists(CONFIG_FILE):
-            logging.error(f"配置文件不存在: {CONFIG_FILE}")
-            return []
-            
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                sources = [
-                    line.strip() for line_num, line in enumerate(f, 1)
-                    if line.strip() and not line.startswith("#") and line.startswith(("http://", "https://"))
-                ]
-            logging.info(f"从{CONFIG_FILE}读取到{len(sources)}条EPG源:")
-            for idx, source in enumerate(sources, 1):
-                logging.info(f"  {idx}. {source[:60]}...")  # 显示每条源的信息
-            return sources
-        except Exception as e:
-            logging.error(f"读取配置文件失败: {str(e)}")
-            return []
+def fetch_weifang_epg():
+    """抓取潍坊本地EPG并生成XML文件"""
+    logging.info("🚀 开始抓取潍坊本地EPG")
+    root = etree.Element("tv")
 
-    def clean_xml_content(self, content: str) -> str:
-        content_clean = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', content)
-        return content_clean.replace('& ', '&amp; ')
+    # 添加频道信息
+    for channel in WEIFANG_CHANNELS:
+        channel_elem = etree.SubElement(root, "channel")
+        channel_elem.set("id", channel["id"])
+        etree.SubElement(channel_elem, "display-name", lang="zh-CN").text = channel["name"]
+        etree.SubElement(channel_elem, "display-name", lang="zh-CN").text = channel["alias"]
 
-    def fetch_single_source(self, source: str) -> Tuple[bool, any]:
-        try:
-            start_time = time.time()
-            response = self.session.get(source, timeout=TIMEOUT)
-            response.raise_for_status()
-            
-            if source.endswith('.gz'):
-                content = gzip.decompress(response.content).decode('utf-8')
-            else:
-                content = response.text
-                
-            content_clean = self.clean_xml_content(content)
-            xml_tree = etree.fromstring(content_clean.encode('utf-8'))
-            cost_time = time.time() - start_time
-            logging.info(f"✅ 抓取成功: {source[:30]}... (耗时{cost_time:.2f}s)")
-            return True, xml_tree
-        except Exception as e:
-            logging.error(f"❌ 抓取失败: {source[:30]}... -> {str(e)[:50]}")
-            return False, None
+    # 抓取3天节目（示例接口，需替换为实际潍坊EPG接口）
+    headers = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"}
+    for day_offset in range(3):
+        target_date = (datetime.today() + timedelta(days=day_offset)).strftime("%Y-%m-%d")
+        for channel in WEIFANG_CHANNELS:
+            try:
+                # 替换为实际的潍坊EPG接口（此处为示例）
+                url = f"https://sd.iqilu.com/api/tv/program?channel={channel['alias']}&date={target_date}"
+                resp = requests.get(url, headers=headers, timeout=10)
+                resp.raise_for_status()
+                data = resp.json()
 
-    def process_channels_and_programs(self, xml_tree, source: str):
-        # 处理频道
-        channel_count = 0
-        for channel in xml_tree.xpath("//channel"):
-            channel_id = channel.get("id", "").strip()
-            if not channel_id or channel_id in self.channel_ids:
-                continue
-            self.channel_ids.add(channel_id)
-            self.all_channels.append(channel)
-            self.channel_programs[channel_id] = []
-            channel_count += 1
-        
-        # 处理节目
-        program_count = 0
-        for program in xml_tree.xpath("//programme"):
-            channel_id = program.get("channel", "").strip()
-            if channel_id and channel_id in self.channel_programs:
-                self.channel_programs[channel_id].append(program)
-                self.all_programs.append(program)
-                program_count += 1
-        
-        logging.info(f"🔧 处理{source[:30]}...: 新增频道{channel_count}个，新增节目{program_count}个")
+                for prog in data.get("data", []):
+                    # 转换时间格式（EPG标准格式：YYYYMMDDHHMMSS）
+                    start = f"{prog['start_time'].replace('-', '').replace(':', '')} +0800"
+                    stop = f"{prog['end_time'].replace('-', '').replace(':', '')} +0800"
+                    # 创建节目节点
+                    prog_elem = etree.SubElement(root, "programme", 
+                                                channel=channel["id"], 
+                                                start=start, 
+                                                stop=stop)
+                    etree.SubElement(prog_elem, "title", lang="zh-CN").text = prog["program_name"]
+                    if prog.get("program_desc"):
+                        etree.SubElement(prog_elem, "desc", lang="zh-CN").text = prog["program_desc"]
 
-    # 处理本地潍坊EPG
-    def process_local_weifang_epg(self):
-        if not os.path.exists(LOCAL_WEIFANG_EPG):
-            logging.warning(f"⚠️ 本地潍坊EPG文件不存在: {LOCAL_WEIFANG_EPG}，跳过")
-            return
-        
-        try:
-            logging.info(f"开始合并本地潍坊EPG文件")
-            with open(LOCAL_WEIFANG_EPG, "r", encoding="utf-8") as f:
-                content = f.read()
-            content_clean = self.clean_xml_content(content)
-            xml_tree = etree.fromstring(content_clean.encode('utf-8'))
-            self.process_channels_and_programs(xml_tree, "本地潍坊EPG")
-            logging.info(f"✅ 成功合并本地潍坊EPG")
-        except Exception as e:
-            logging.error(f"❌ 合并本地潍坊EPG失败: {str(e)}")
+                logging.info(f"✅ 抓取{channel['name']} {target_date}节目成功")
+            except Exception as e:
+                logging.error(f"❌ 抓取{channel['name']}节目失败: {str(e)}")
 
-    def fetch_and_process_all_sources(self, sources: List[str]):
-        logging.info("\n开始抓取所有EPG源:")
-        with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(sources))) as executor:
-            future_to_source = {executor.submit(self.fetch_single_source, source): source for source in sources}
-            for future in as_completed(future_to_source):
-                source = future_to_source[future]
-                try:
-                    success, xml_tree = future.result()
-                    if success and xml_tree is not None:
-                        self.process_channels_and_programs(xml_tree, source)
-                except Exception as e:
-                    logging.error(f"处理源{source[:30]}...失败: {str(e)}")
-        
-        # 处理本地EPG
-        self.process_local_weifang_epg()
+    # 保存为XML文件
+    output_path = os.path.join(OUTPUT_DIR, "weifang.xml")
+    with open(output_path, "wb") as f:
+        f.write(etree.tostring(root, encoding="utf-8", pretty_print=True))
+    logging.info(f"💾 潍坊本地EPG已保存到: {output_path}")
 
-    def generate_final_xml(self) -> str:
-        xml_declare = f'''<?xml version="1.0" encoding="UTF-8"?>
-<tv generator-info-name="EPG合并器" last-update="{datetime.now().strftime('%Y%m%d%H%M%S')}">'''
-        root = etree.fromstring(f"{xml_declare}</tv>".encode("utf-8"))
-        
-        for channel in self.all_channels:
-            root.append(channel)
-        for program in self.all_programs:
-            root.append(program)
-            
-        return etree.tostring(root, encoding="utf-8", pretty_print=True).decode("utf-8")
-
-    def save_files(self, xml_content: str):
-        # 保存XML
-        xml_path = os.path.join(OUTPUT_DIR, "epg.xml")
-        with open(xml_path, "w", encoding="utf-8") as f:
-            f.write(xml_content)
-        
-        # 保存GZIP
-        gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
-        with gzip.open(gz_path, "wb") as f:
-            f.write(xml_content.encode("utf-8"))
-        
-        logging.info(f"\n💾 文件保存成功:")
-        logging.info(f"  - XML文件: {os.path.abspath(xml_path)}")
-        logging.info(f"  - GZIP文件: {os.path.abspath(gz_path)}")
-
-    def print_statistics(self):
-        logging.info("\n" + "="*50)
-        logging.info("📊 EPG合并统计报告")
-        logging.info(f"  总频道数: {len(self.channel_ids)}")
-        logging.info(f"  总节目数: {len(self.all_programs)}")
-        logging.info("="*50)
-
-    def run(self):
-        start_time = time.time()
-        logging.info("\n" + "="*50)
-        logging.info("🚀 启动EPG合并流程")
-        logging.info("="*50)
-        
-        try:
-            sources = self.read_epg_sources()
-            if not sources:
-                logging.error("❌ 无可用EPG源，流程终止")
-                return False
-            
-            self.fetch_and_process_all_sources(sources)
-            
-            # 生成并保存文件
-            xml_content = self.generate_final_xml()
-            self.save_files(xml_content)
-            self.print_statistics()
-            
-            total_time = time.time() - start_time
-            logging.info(f"\n✅ 合并流程完成! 总耗时: {total_time:.2f}秒")
-            return True
-        except Exception as e:
-            logging.error(f"\n💥 合并流程异常失败: {str(e)}", exc_info=True)
-            return False
-
-def main():
-    generator = EPGGenerator()
-    success = generator.run()
-    exit(0 if success else 1)
 
 if __name__ == "__main__":
-    main()
+    fetch_weifang_epg()
