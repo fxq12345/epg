@@ -15,20 +15,21 @@ from urllib3.util.retry import Retry
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
 LOG_FILE = "epg_merge.log"
-MAX_WORKERS = 3
+MAX_WORKERS = 5  # 改为5（匹配5条源，同时抓取）
 TIMEOUT = 30
 CORE_RETRY_COUNT = 2
 # 本地潍坊EPG文件路径
 LOCAL_WEIFANG_EPG = os.path.join(OUTPUT_DIR, "weifang.xml")
 
-# 配置日志
+# 配置日志（确保实时输出）
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,  # 降低日志级别，减少冗余
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(LOG_FILE, encoding='utf-8'),
         logging.StreamHandler()
-    ]
+    ],
+    force=True  # 强制覆盖默认配置
 )
 # ==================================================
 
@@ -39,6 +40,7 @@ class EPGGenerator:
         self.all_channels: List = []
         self.all_programs: List = []
         self.channel_programs: Dict[str, List] = {}
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
         
     def _create_session(self) -> requests.Session:
         session = requests.Session()
@@ -68,8 +70,10 @@ class EPGGenerator:
                     line.strip() for line_num, line in enumerate(f, 1)
                     if line.strip() and not line.startswith("#") and line.startswith(("http://", "https://"))
                 ]
-                logging.info(f"读取到{len(sources)}个EPG源")
-                return sources
+            logging.info(f"从{CONFIG_FILE}读取到{len(sources)}条EPG源:")
+            for idx, source in enumerate(sources, 1):
+                logging.info(f"  {idx}. {source[:60]}...")  # 显示每条源的信息
+            return sources
         except Exception as e:
             logging.error(f"读取配置文件失败: {str(e)}")
             return []
@@ -81,7 +85,6 @@ class EPGGenerator:
     def fetch_single_source(self, source: str) -> Tuple[bool, any]:
         try:
             start_time = time.time()
-            logging.info(f"抓取: {source[:60]}...")
             response = self.session.get(source, timeout=TIMEOUT)
             response.raise_for_status()
             
@@ -92,14 +95,16 @@ class EPGGenerator:
                 
             content_clean = self.clean_xml_content(content)
             xml_tree = etree.fromstring(content_clean.encode('utf-8'))
-            logging.info(f"成功: {time.time() - start_time:.2f}s")
+            cost_time = time.time() - start_time
+            logging.info(f"✅ 抓取成功: {source[:30]}... (耗时{cost_time:.2f}s)")
             return True, xml_tree
         except Exception as e:
-            logging.error(f"失败: {str(e)[:80]}")
+            logging.error(f"❌ 抓取失败: {source[:30]}... -> {str(e)[:50]}")
             return False, None
 
-    def process_channels_and_programs(self, xml_tree):
+    def process_channels_and_programs(self, xml_tree, source: str):
         # 处理频道
+        channel_count = 0
         for channel in xml_tree.xpath("//channel"):
             channel_id = channel.get("id", "").strip()
             if not channel_id or channel_id in self.channel_ids:
@@ -107,18 +112,23 @@ class EPGGenerator:
             self.channel_ids.add(channel_id)
             self.all_channels.append(channel)
             self.channel_programs[channel_id] = []
+            channel_count += 1
         
         # 处理节目
+        program_count = 0
         for program in xml_tree.xpath("//programme"):
             channel_id = program.get("channel", "").strip()
             if channel_id and channel_id in self.channel_programs:
                 self.channel_programs[channel_id].append(program)
                 self.all_programs.append(program)
+                program_count += 1
+        
+        logging.info(f"🔧 处理{source[:30]}...: 新增频道{channel_count}个，新增节目{program_count}个")
 
-    # 处理本地潍坊EPG（失败不中断）
+    # 处理本地潍坊EPG
     def process_local_weifang_epg(self):
         if not os.path.exists(LOCAL_WEIFANG_EPG):
-            logging.warning(f"本地潍坊EPG文件不存在: {LOCAL_WEIFANG_EPG}，跳过")
+            logging.warning(f"⚠️ 本地潍坊EPG文件不存在: {LOCAL_WEIFANG_EPG}，跳过")
             return
         
         try:
@@ -127,13 +137,13 @@ class EPGGenerator:
                 content = f.read()
             content_clean = self.clean_xml_content(content)
             xml_tree = etree.fromstring(content_clean.encode('utf-8'))
-            self.process_channels_and_programs(xml_tree)
+            self.process_channels_and_programs(xml_tree, "本地潍坊EPG")
             logging.info(f"✅ 成功合并本地潍坊EPG")
         except Exception as e:
-            logging.error(f"合并本地潍坊EPG失败: {str(e)}")
-            # 仅打印日志，不中断流程
+            logging.error(f"❌ 合并本地潍坊EPG失败: {str(e)}")
 
     def fetch_and_process_all_sources(self, sources: List[str]):
+        logging.info("\n开始抓取所有EPG源:")
         with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(sources))) as executor:
             future_to_source = {executor.submit(self.fetch_single_source, source): source for source in sources}
             for future in as_completed(future_to_source):
@@ -141,12 +151,11 @@ class EPGGenerator:
                 try:
                     success, xml_tree = future.result()
                     if success and xml_tree is not None:
-                        self.process_channels_and_programs(xml_tree)
-                        logging.info(f"✅ 成功处理源: {source[:60]}")
+                        self.process_channels_and_programs(xml_tree, source)
                 except Exception as e:
-                    logging.error(f"处理源{source}失败: {str(e)}")
+                    logging.error(f"处理源{source[:30]}...失败: {str(e)}")
         
-        # 处理本地潍坊EPG（无论外部源是否成功，都执行）
+        # 处理本地EPG
         self.process_local_weifang_epg()
 
     def generate_final_xml(self) -> str:
@@ -162,61 +171,57 @@ class EPGGenerator:
         return etree.tostring(root, encoding="utf-8", pretty_print=True).decode("utf-8")
 
     def save_files(self, xml_content: str):
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        # 清理旧文件
-        for f in os.listdir(OUTPUT_DIR):
-            if f.endswith(('.xml', '.gz')) and os.path.isfile(os.path.join(OUTPUT_DIR, f)):
-                try:
-                    os.remove(os.path.join(OUTPUT_DIR, f))
-                except Exception:
-                    pass
-        
-        # 保存XML和GZIP
+        # 保存XML
         xml_path = os.path.join(OUTPUT_DIR, "epg.xml")
         with open(xml_path, "w", encoding="utf-8") as f:
             f.write(xml_content)
-        with gzip.open(os.path.join(OUTPUT_DIR, "epg.gz"), "wb") as f:
+        
+        # 保存GZIP
+        gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
+        with gzip.open(gz_path, "wb") as f:
             f.write(xml_content.encode("utf-8"))
         
-        logging.info(f"💾 文件保存成功: epg.xml / epg.gz")
+        logging.info(f"\n💾 文件保存成功:")
+        logging.info(f"  - XML文件: {os.path.abspath(xml_path)}")
+        logging.info(f"  - GZIP文件: {os.path.abspath(gz_path)}")
 
     def print_statistics(self):
         logging.info("\n" + "="*50)
-        logging.info("📊 EPG统计报告")
-        logging.info(f"总频道数: {len(self.channel_ids)}")
-        logging.info(f"总节目数: {len(self.all_programs)}")
+        logging.info("📊 EPG合并统计报告")
+        logging.info(f"  总频道数: {len(self.channel_ids)}")
+        logging.info(f"  总节目数: {len(self.all_programs)}")
         logging.info("="*50)
 
     def run(self):
         start_time = time.time()
-        logging.info("🚀 开始EPG合并")
+        logging.info("\n" + "="*50)
+        logging.info("🚀 启动EPG合并流程")
+        logging.info("="*50)
         
         try:
             sources = self.read_epg_sources()
+            if not sources:
+                logging.error("❌ 无可用EPG源，流程终止")
+                return False
+            
             self.fetch_and_process_all_sources(sources)
             
-            # 即使无数据也生成文件
+            # 生成并保存文件
             xml_content = self.generate_final_xml()
             self.save_files(xml_content)
             self.print_statistics()
             
-            logging.info(f"✅ 完成! 耗时: {time.time() - start_time:.2f}秒")
+            total_time = time.time() - start_time
+            logging.info(f"\n✅ 合并流程完成! 总耗时: {total_time:.2f}秒")
             return True
         except Exception as e:
-            logging.error(f"💥 合并失败: {str(e)}")
+            logging.error(f"\n💥 合并流程异常失败: {str(e)}", exc_info=True)
             return False
 
 def main():
-    print("\n" + "="*50)
-    print("📺 EPG合并工具")
-    print("="*50)
-    
     generator = EPGGenerator()
     success = generator.run()
-    
-    print("\n✅ EPG文件生成完成!" if success else "\n❌ EPG合并流程已执行（部分环节失败）")
-    print(f"📁 输出目录: {os.path.abspath(OUTPUT_DIR)}")
-    exit(0)
+    exit(0 if success else 1)
 
 if __name__ == "__main__":
     main()
