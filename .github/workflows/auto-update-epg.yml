@@ -2,8 +2,8 @@ name: EPG自动更新（酷9适配版）
 
 on:
   schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+    - cron: '0 0 * * *'  # 每天北京时间8点运行
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
   build-epg:
@@ -27,13 +27,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests lxml
 
-      # 暂时注释本地EPG生成（接口不可用）
-      # - name: 运行潍坊本地EPG生成脚本
-      #   run: python weifang_epg_spider.py
-      #   env:
-      #     PYTHONIOENCODING: utf-8
-      #   continue-on-error: true
-
       - name: 运行EPG合并脚本
         run: python merge.py
         env:
@@ -54,14 +47,27 @@ jobs:
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          # 移除不存在的weifang_epg.log
           git add output/epg.xml output/epg.gz epg_merge.log
-          git diff --quiet && git diff --staged --quiet || git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
-          git fetch origin master
-          git reset --hard origin/master
-          git add output/epg.xml output/epg.gz epg_merge.log
-          git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
-          git push origin master --force
+          
+          # 第一步：检查本地是否有变更
+          if ! git diff --quiet && ! git diff --staged --quiet; then
+            git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
+            
+            # 同步远程分支
+            git fetch origin master
+            git reset --hard origin/master
+            git add output/epg.xml output/epg.gz epg_merge.log
+            
+            # 第二步：重置后再次检查是否有变更
+            if ! git diff --quiet && ! git diff --staged --quiet; then
+              git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
+              git push origin master --force
+            else
+              echo "✅ 重置后无内容需提交，跳过推送"
+            fi
+          else
+            echo "✅ 无内容需提交，跳过更新"
+          fi
 
       - name: 清理工作目录
         if: always()
