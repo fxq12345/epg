@@ -101,4 +101,13 @@ def crawl_weifang_epg():
                 time.sleep(1.5)
                 
             except Exception as e:
-                logging.error(f"⚠️ 抓取
+                logging.error(f"⚠️ 抓取 {channel['name']} {target_date} 失败：{str(e)}")
+                continue  # 失败时跳过
+    
+    return programmes
+
+if __name__ == "__main__":
+    logging.info("🚀 开始抓取潍坊本地频道EPG节目单（基于闪电新闻APP）")
+    epg_data = crawl_weifang_epg()
+    generate_epg_xml(epg_data)
+    logging.info("📌 本地EPG抓取流程已完成（无论是否成功，继续后续步骤）")
