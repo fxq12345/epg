@@ -19,9 +19,9 @@ MAX_WORKERS = 3
 TIMEOUT = 30
 CORE_RETRY_COUNT = 2
 
-# 配置日志
+# 配置日志：提升日志级别为DEBUG，输出更详细信息
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(LOG_FILE, encoding='utf-8'),
@@ -97,8 +97,10 @@ class EPGGenerator:
             
             if source.endswith('.gz'):
                 content = gzip.decompress(response.content).decode('utf-8')
+                logging.debug(f"源文件为GZIP格式，已解压，大小: {len(content)} 字符")
             else:
                 content = response.text
+                logging.debug(f"源文件为XML格式，大小: {len(content)} 字符")
                 
             content_clean = self.clean_xml_content(content)
             xml_tree = etree.fromstring(content_clean.encode('utf-8'))
@@ -115,13 +117,19 @@ class EPGGenerator:
         """处理频道和节目数据"""
         # 处理频道
         channels = xml_tree.xpath("//channel")
+        logging.debug(f"找到 {len(channels)} 个频道节点")
         for channel in channels:
             channel_id = channel.get("id", "").strip()
-            if not channel_id or channel_id in self.channel_ids:
+            if not channel_id:
+                logging.debug(f"跳过无ID的频道节点")
+                continue
+            if channel_id in self.channel_ids:
+                logging.debug(f"频道 {channel_id} 已存在，跳过")
                 continue
                 
             self.channel_ids.add(channel_id)
             self.all_channels.append(channel)
+            logging.debug(f"新增频道: {channel_id}")
             
             # 初始化该频道的节目列表
             if channel_id not in self.channel_programs:
@@ -129,11 +137,13 @@ class EPGGenerator:
         
         # 处理节目
         programs = xml_tree.xpath("//programme")
+        logging.debug(f"找到 {len(programs)} 个节目节点")
         for program in programs:
             channel_id = program.get("channel", "").strip()
             if channel_id and channel_id in self.channel_programs:
                 self.channel_programs[channel_id].append(program)
                 self.all_programs.append(program)
+                logging.debug(f"为频道 {channel_id} 添加节目: {program.find('title').text if program.find('title') is not None else '无标题'}")
 
     def fetch_and_process_all_sources(self, sources: List[str]) -> bool:
         """获取并处理所有EPG源"""
@@ -150,6 +160,7 @@ class EPGGenerator:
                     if success and xml_tree is not None:
                         self.process_channels_and_programs(xml_tree)
                         successful_sources += 1
+                        logging.info(f"✅ 成功处理源: {source[:60]}...")
                 except Exception as e:
                     logging.error(f"处理失败 {source}: {str(e)[:80]}")
         
@@ -164,10 +175,12 @@ class EPGGenerator:
         root = etree.fromstring(f"{xml_declare}</tv>".encode("utf-8"))
         
         # 添加所有频道
+        logging.debug(f"开始添加 {len(self.all_channels)} 个频道到最终XML")
         for channel in self.all_channels:
             root.append(channel)
             
         # 添加所有节目单
+        logging.debug(f"开始添加 {len(self.all_programs)} 个节目到最终XML")
         for program in self.all_programs:
             root.append(program)
             
@@ -182,6 +195,7 @@ class EPGGenerator:
             if f.endswith(('.xml', '.gz')) and os.path.isfile(os.path.join(OUTPUT_DIR, f)):
                 try:
                     os.remove(os.path.join(OUTPUT_DIR, f))
+                    logging.debug(f"删除旧文件: {f}")
                 except Exception:
                     pass
         
@@ -217,7 +231,7 @@ class EPGGenerator:
                                    if c not in self.channel_programs or not self.channel_programs[c]]
         if channels_without_programs:
             logging.info(f"无节目单的频道: {len(channels_without_programs)}个")
-            for channel in channels_without_programs[:10]:
+            for channel in channels_without_programs[:20]:  # 显示前20个
                 logging.info(f"  - {channel}")
         
         logging.info("="*50)
