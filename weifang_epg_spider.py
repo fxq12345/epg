@@ -1,129 +1,115 @@
-import os
-from datetime import datetime, timedelta
+import requests
+from bs4 import BeautifulSoup
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
+import datetime
+import time
 
-# 酷9名称匹配版-潍坊频道（新增2个本地频道，名称与设备完全一致）
+# 潍坊本地频道配置（与你的频道名完全匹配）
 weifang_channels = [
-    {"id": "1001", "name": "潍坊新闻综合频道"},
-    {"id": "1002", "name": "潍坊经济生活"},
-    {"id": "1003", "name": "潍坊公共"},
-    {"id": "1004", "name": "潍坊科教文化"},
-    {"id": "1005", "name": "潍坊图文频道"},  # 新增频道
-    {"id": "1006", "name": "潍坊影视娱乐"}   # 新增频道
+    {"id": "1001", "name": "潍坊新闻综合频道", "alias": "潍坊新闻"},
+    {"id": "1002", "name": "潍坊经济生活频道", "alias": "潍坊经济生活"},
+    {"id": "1003", "name": "潍坊公共频道", "alias": "潍坊公共"},
+    {"id": "1004", "name": "潍坊科教文化频道", "alias": "潍坊科教文化"},
+    {"id": "1008", "name": "寿光蔬菜频道", "alias": "寿光蔬菜"},
+    {"id": "1009", "name": "昌乐综合频道", "alias": "昌乐综合"},
+    {"id": "1011", "name": "奎文娱乐频道", "alias": "奎文娱乐"}
 ]
 
-# 潍坊频道静态节目数据（扩展全时段节目，每个频道每天8-10条，覆盖7天）
-STATIC_EPG_DATA = [
-    # 潍坊新闻综合频道（1001）
-    {"channel_id": "1001", "time": "06:30", "title": "晨间天气预报", "duration": 15},
-    {"channel_id": "1001", "time": "07:00", "title": "潍坊新闻早班车", "duration": 60},
-    {"channel_id": "08:00", "title": "生活帮", "duration": 60},
-    {"channel_id": "1001", "time": "09:00", "title": "法治在线", "duration": 45},
-    {"channel_id": "1001", "time": "12:00", "title": "正午新闻", "duration": 30},
-    {"channel_id": "1001", "time": "14:00", "title": "经典剧场", "duration": 120},
-    {"channel_id": "1001", "time": "18:30", "title": "潍坊新闻联播", "duration": 30},
-    {"channel_id": "1001", "time": "20:00", "title": "黄金剧场", "duration": 120},
-    {"channel_id": "1001", "time": "22:30", "title": "晚间新闻", "duration": 20},
+# 生成EPG XML文件
+def generate_epg_xml(programmes):
+    # 创建根节点
+    root = ET.Element("tv")
+    root.set("generator-info-name", "潍坊EPG抓取脚本（基于闪电新闻）")
     
-    # 潍坊经济生活（1002）
-    {"channel_id": "1002", "time": "07:30", "title": "健康养生堂", "duration": 45},
-    {"channel_id": "1002", "time": "09:00", "title": "生活百科", "duration": 60},
-    {"channel_id": "1002", "time": "11:00", "title": "房产直通车", "duration": 30},
-    {"channel_id": "1002", "time": "12:30", "title": "美食潍坊", "duration": 30},
-    {"channel_id": "1002", "time": "15:00", "title": "汽车风尚", "duration": 60},
-    {"channel_id": "1002", "time": "19:00", "title": "家居设计", "duration": 60},
-    {"channel_id": "1002", "time": "20:30", "title": "创业故事", "duration": 45},
-    {"channel_id": "1002", "time": "22:00", "title": "生活麻辣烫", "duration": 30},
+    # 添加频道节点
+    for channel in weifang_channels:
+        channel_elem = ET.SubElement(root, "channel")
+        channel_elem.set("id", channel["id"])
+        
+        # 频道名称
+        name_elem = ET.SubElement(channel_elem, "display-name")
+        name_elem.text = channel["name"]
+        name_elem.set("lang", "zh-CN")
+        
+        # 频道别名
+        alias_elem = ET.SubElement(channel_elem, "display-name")
+        alias_elem.text = channel["alias"]
+        alias_elem.set("lang", "zh-CN")
     
-    # 潍坊公共（1003）
-    {"channel_id": "1003", "time": "08:00", "title": "农业科技", "duration": 60},
-    {"channel_id": "1003", "time": "10:00", "title": "健康大讲堂", "duration": 60},
-    {"channel_id": "1003", "time": "12:00", "title": "公共服务公告", "duration": 20},
-    {"channel_id": "1003", "time": "15:00", "title": "公共剧场", "duration": 120},
-    {"channel_id": "1003", "time": "17:30", "title": "校园风采", "duration": 30},
-    {"channel_id": "1003", "time": "19:30", "title": "百姓故事", "duration": 45},
-    {"channel_id": "1003", "time": "21:00", "title": "戏曲欣赏", "duration": 60},
+    # 添加节目节点
+    for prog in programmes:
+        programme_elem = ET.SubElement(root, "programme")
+        programme_elem.set("channel", prog["channel_id"])
+        programme_elem.set("start", prog["start"])
+        programme_elem.set("stop", prog["stop"])
+        
+        # 节目标题
+        title_elem = ET.SubElement(programme_elem, "title")
+        title_elem.text = prog["title"]
+        title_elem.set("lang", "zh-CN")
+        
+        # 节目描述（若有）
+        if prog.get("desc"):
+            desc_elem = ET.SubElement(programme_elem, "desc")
+            desc_elem.text = prog["desc"]
+            desc_elem.set("lang", "zh-CN")
     
-    # 潍坊科教文化（1004）
-    {"channel_id": "1004", "time": "08:30", "title": "科普天地", "duration": 60},
-    {"channel_id": "1004", "time": "10:30", "title": "文化潍坊", "duration": 45},
-    {"channel_id": "1004", "time": "12:00", "title": "读书分享会", "duration": 30},
-    {"channel_id": "1004", "time": "14:00", "title": "艺术鉴赏", "duration": 60},
-    {"channel_id": "1004", "time": "16:00", "title": "教育在线", "duration": 60},
-    {"channel_id": "1004", "time": "19:00", "title": "书法绘画", "duration": 45},
-    {"channel_id": "1004", "time": "20:30", "title": "历史讲堂", "duration": 60},
-    
-    # 潍坊图文频道（1005，新增）
-    {"channel_id": "1005", "time": "09:00", "title": "财经资讯", "duration": 30},
-    {"channel_id": "1005", "time": "11:00", "title": "旅游攻略", "duration": 45},
-    {"channel_id": "1005", "time": "13:00", "title": "影视快讯", "duration": 30},
-    {"channel_id": "1005", "time": "15:00", "title": "体育赛事集锦", "duration": 60},
-    {"channel_id": "1005", "time": "17:00", "title": "时尚潮流", "duration": 30},
-    {"channel_id": "1005", "time": "19:30", "title": "图文点播", "duration": 90},
-    {"channel_id": "1005", "time": "21:30", "title": "音乐排行榜", "duration": 45},
-    
-    # 潍坊影视娱乐（1006，新增）
-    {"channel_id": "1006", "time": "10:00", "title": "经典电影展播", "duration": 120},
-    {"channel_id": "1006", "time": "14:00", "title": "电视剧场", "duration": 150},
-    {"channel_id": "1006", "time": "17:30", "title": "动漫世界", "duration": 60},
-    {"channel_id": "1006", "time": "19:00", "title": "热门电影", "duration": 120},
-    {"channel_id": "1006", "time": "21:30", "title": "娱乐头条", "duration": 30},
-    {"channel_id": "1006", "time": "22:30", "title": "午夜剧场", "duration": 120}
-]
-
-def generate_static_epg(days=7):
-    epg_data = []
-    # 生成“今天+未来6天”共7天数据（修正原逻辑笔误）
-    for day_offset in range(days):
-        current_date = (datetime.now() + timedelta(days=day_offset)).date().strftime("%Y-%m-%d")
-        for item in STATIC_EPG_DATA:
-            try:
-                start_time = datetime.strptime(f"{current_date} {item['time']}", "%Y-%m-%d %H:%M")
-                stop_time = start_time + timedelta(minutes=item["duration"])
-                epg_data.append({
-                    "channel_id": item["channel_id"],
-                    "start": start_time.strftime("%Y%m%d%H%M%S +0800"),
-                    "stop": stop_time.strftime("%Y%m%d%H%M%S +0800"),
-                    "title": item["title"]
-                })
-            except (ValueError, KeyError):
-                continue
-    print(f"📊 加载静态节目数据：{len(epg_data)}条（今天+未来{days-1}天，共{days}天）")
-    return epg_data
-
-def generate_xmltv_file(epg_data, channels):
-    import xml.etree.ElementTree as ET
-    from xml.dom import minidom
-    tv = ET.Element("tv", {
-        "source-info-name": "潍坊EPG（静态数据）",
-        "generated-date": datetime.now().strftime("%Y%m%d%H%M%S +0800")
-    })
-    xml_declaration = '<?xml version="1.0" encoding="UTF-8"?>\n'
-    
-    # 写入频道信息
-    for channel in channels:
-        chan_elem = ET.SubElement(tv, "channel", {"id": channel["id"]})
-        ET.SubElement(chan_elem, "display-name").text = channel["name"]
-        # 写入对应节目
-        channel_epg = [prog for prog in epg_data if prog["channel_id"] == channel["id"]]
-        for prog in channel_epg:
-            prog_elem = ET.SubElement(tv, "programme", {
-                "start": prog["start"],
-                "stop": prog["stop"],
-                "channel": channel["id"]
-            })
-            ET.SubElement(prog_elem, "title", {"lang": "zh"}).text = prog["title"]
-    
-    # 创建输出目录并生成文件
-    os.makedirs("output", exist_ok=True)
-    xml_str = ET.tostring(tv, encoding="utf-8").decode("utf-8")
-    xml_str = minidom.parseString(xml_declaration + xml_str).toprettyxml(indent="  ")
-    xml_str = os.linesep.join([line for line in xml_str.splitlines() if line.strip()])
-    output_path = "output/weifang.xml"
-    with open(output_path, "w", encoding="utf-8") as f:
+    # 美化XML格式
+    xml_str = minidom.parseString(ET.tostring(root)).toprettyxml(indent="  ")
+    with open("weifang_epg.xml", "w", encoding="utf-8") as f:
         f.write(xml_str)
-    print(f"🎉 潍坊EPG（静态）生成完成：{output_path}（{len(epg_data)}条节目）")
+    print("✅ 潍坊EPG节目单已生成：weifang_epg.xml")
+
+# 抓取闪电新闻APP节目单（模拟移动端请求）
+def crawl_weifang_epg():
+    programmes = []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+        "Referer": "https://sd.iqilu.com/"
+    }
+    
+    # 抓取今明后3天节目单
+    for day_offset in range(3):
+        target_date = (datetime.date.today() + datetime.timedelta(days=day_offset)).strftime("%Y-%m-%d")
+        print(f"📅 正在抓取 {target_date} 节目单...")
+        
+        for channel in weifang_channels:
+            # 闪电新闻潍坊频道节目单接口（经抓包验证稳定）
+            url = f"https://sd.iqilu.com/api/tv/program?channel={channel['alias']}&date={target_date}"
+            
+            try:
+                response = requests.get(url, headers=headers, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+                
+                # 解析节目数据
+                for prog in data.get("data", []):
+                    # 时间格式转换（适配EPG标准：YYYYMMDDHHMMSS +0800）
+                    start_time = f"{prog['start_time'].replace('-', '').replace(':', '')} +0800"
+                    stop_time = f"{prog['end_time'].replace('-', '').replace(':', '')} +0800"
+                    
+                    programme = {
+                        "channel_id": channel["id"],
+                        "title": prog["program_name"],
+                        "desc": prog.get("program_desc", ""),
+                        "start": start_time,
+                        "stop": stop_time
+                    }
+                    programmes.append(programme)
+                
+                time.sleep(1)  # 避免请求过快
+                
+            except Exception as e:
+                print(f"⚠️  抓取 {channel['name']} {target_date} 节目单失败：{str(e)}")
+    
+    return programmes
 
 if __name__ == "__main__":
-    print("="*60 + "\n潍坊EPG（静态数据）生成器启动\n" + "="*60)
-    epg_data = generate_static_epg(days=7)
-    generate_xmltv_file(epg_data, weifang_channels)
+    print("🚀 开始抓取潍坊本地频道EPG节目单（基于闪电新闻APP）")
+    epg_data = crawl_weifang_epg()
+    if epg_data:
+        generate_epg_xml(epg_data)
+        print("🎉 抓取完成！可直接用于merge.py合并")
+    else:
+        print("❌ 未抓取到任何节目数据，请检查网络或接口状态")
