@@ -2,8 +2,8 @@ name: EPG自动更新（酷9适配版·强制覆盖）
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 每天北京时间8点运行
-  workflow_dispatch:  # 允许手动触发
+    - cron: '0 0 * * *'  # 每天北京时间8点自动运行
+  workflow_dispatch:     # 允许手动触发
 
 jobs:
   build-epg:
@@ -43,18 +43,17 @@ jobs:
             echo "✅ 目标文件生成成功"
           fi
 
-      - name: 强制提交更新（覆盖远程文件）
+      - name: 强制覆盖提交（替换远程EPG文件）
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          # 强制添加并提交最新文件
+          # 先删除缓存中的旧文件，确保新文件能完全覆盖
+          git rm -r --cached output/epg.xml output/epg.gz || true
+          # 强制添加新生成的文件
           git add -f output/epg.xml output/epg.gz epg_merge.log
-          git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）" || true
-          # 强制同步并推送
-          git fetch origin master
-          git reset --hard origin/master
-          git add -f output/epg.xml output/epg.gz epg_merge.log
-          git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）" || true
+          # 提交更新
+          git commit -m "强制更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
+          # 强制推送，覆盖远程所有冲突
           git push origin master --force
 
       - name: 清理工作目录
