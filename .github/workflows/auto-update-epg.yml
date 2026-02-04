@@ -1,37 +1,31 @@
-name: EPG自动更新（酷9适配版·强制覆盖）
+name: EPG自动更新（酷9适配版）
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 每天UTC时间0点（北京时间8点）自动运行
+    - cron: '0 0 * * *'  # 每天北京时间8点运行
   workflow_dispatch:  # 允许手动触发
 
 jobs:
   build-epg:
     runs-on: ubuntu-latest
     steps:
-      - name: 拉取代码仓库（强制同步最新版本）
+      - name: 拉取代码仓库
         uses: actions/checkout@v4
         with:
           ref: 'master'
-          fetch-depth: 0  # 拉取全量历史，避免冲突
-          clean: true      # 清理本地无关文件
+          fetch-depth: 0
+          clean: true
 
       - name: 配置Python环境
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'  # 稳定兼容版本
+          python-version: '3.10'
           cache: 'pip'
 
       - name: 安装依赖包
         run: |
           python -m pip install --upgrade pip
           pip install requests lxml
-
-      - name: 运行潍坊本地EPG生成脚本
-        run: python weifang_epg_spider.py
-        env:
-          PYTHONIOENCODING: utf-8  # 避免中文编码问题
-        continue-on-error: true  # 本地源抓取失败不中断流程
 
       - name: 运行EPG合并脚本
         run: python merge.py
@@ -40,9 +34,8 @@ jobs:
 
       - name: 检查输出文件
         run: |
-          mkdir -p output  # 确保输出目录存在
+          mkdir -p output
           cd output
-          ls -l
           if [ ! -f "epg.xml" ] || [ ! -f "epg.gz" ]; then
             echo "❌ 目标文件生成失败"
             exit 1
@@ -50,19 +43,20 @@ jobs:
             echo "✅ 目标文件生成成功"
           fi
 
-      - name: 提交更新（强制覆盖旧文件）
+      - name: 提交更新（解决分支冲突）
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          # 仅添加存在的文件（移除weifang_epg.xml）
           git add output/epg.xml output/epg.gz epg_merge.log
-          # 仅在文件变化时提交
           git diff --quiet && git diff --staged --quiet || git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
-          # 安全强制推送
-          git push origin master --force-with-lease
+          git fetch origin master
+          git reset --hard origin/master
+          git add output/epg.xml output/epg.gz epg_merge.log
+          git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
+          git push origin master --force
 
       - name: 清理工作目录
-        if: always()  # 无论前面步骤是否成功，都执行清理
+        if: always()
         run: |
           rm -rf __pycache__
           rm -f epg_merge.log
