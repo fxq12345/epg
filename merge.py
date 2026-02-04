@@ -18,6 +18,8 @@ LOG_FILE = "epg_merge.log"
 MAX_WORKERS = 3
 TIMEOUT = 30
 CORE_RETRY_COUNT = 2
+# 新增：本地潍坊EPG文件路径（对应之前生成的weifang.xml）
+LOCAL_WEIFANG_EPG = os.path.join(OUTPUT_DIR, "weifang.xml")
 
 # 配置日志：提升日志级别为DEBUG，输出更详细信息
 logging.basicConfig(
@@ -145,6 +147,24 @@ class EPGGenerator:
                 self.all_programs.append(program)
                 logging.debug(f"为频道 {channel_id} 添加节目: {program.find('title').text if program.find('title') is not None else '无标题'}")
 
+    # 新增：处理本地潍坊EPG文件
+    def process_local_weifang_epg(self):
+        """读取并处理本地的潍坊EPG文件"""
+        if not os.path.exists(LOCAL_WEIFANG_EPG):
+            logging.warning(f"本地潍坊EPG文件不存在: {LOCAL_WEIFANG_EPG}，跳过合并")
+            return
+        
+        try:
+            logging.info(f"开始合并本地潍坊EPG文件: {LOCAL_WEIFANG_EPG}")
+            with open(LOCAL_WEIFANG_EPG, "r", encoding="utf-8") as f:
+                content = f.read()
+            content_clean = self.clean_xml_content(content)
+            xml_tree = etree.fromstring(content_clean.encode('utf-8'))
+            self.process_channels_and_programs(xml_tree)
+            logging.info(f"✅ 成功合并本地潍坊EPG文件")
+        except Exception as e:
+            logging.error(f"合并本地潍坊EPG失败: {str(e)}")
+
     def fetch_and_process_all_sources(self, sources: List[str]) -> bool:
         """获取并处理所有EPG源"""
         successful_sources = 0
@@ -163,6 +183,9 @@ class EPGGenerator:
                         logging.info(f"✅ 成功处理源: {source[:60]}...")
                 except Exception as e:
                     logging.error(f"处理失败 {source}: {str(e)[:80]}")
+        
+        # 新增：处理本地潍坊EPG
+        self.process_local_weifang_epg()
         
         return successful_sources > 0
 
@@ -248,7 +271,7 @@ class EPGGenerator:
                 logging.error("❌ 没有找到可用的EPG源")
                 return False
             
-            # 获取并处理所有源
+            # 获取并处理所有源（含本地潍坊EPG）
             if not self.fetch_and_process_all_sources(sources):
                 logging.error("❌ EPG源获取失败")
                 return False
