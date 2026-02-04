@@ -1,4 +1,4 @@
-name: EPG自动更新（酷9适配版）
+name: EPG自动更新（酷9适配版·强制覆盖）
 
 on:
   schedule:
@@ -43,31 +43,19 @@ jobs:
             echo "✅ 目标文件生成成功"
           fi
 
-      - name: 提交更新（解决分支冲突）
+      - name: 强制提交更新（覆盖远程文件）
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git add output/epg.xml output/epg.gz epg_merge.log
-          
-          # 第一步：检查本地是否有变更
-          if ! git diff --quiet && ! git diff --staged --quiet; then
-            git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
-            
-            # 同步远程分支
-            git fetch origin master
-            git reset --hard origin/master
-            git add output/epg.xml output/epg.gz epg_merge.log
-            
-            # 第二步：重置后再次检查是否有变更
-            if ! git diff --quiet && ! git diff --staged --quiet; then
-              git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
-              git push origin master --force
-            else
-              echo "✅ 重置后无内容需提交，跳过推送"
-            fi
-          else
-            echo "✅ 无内容需提交，跳过更新"
-          fi
+          # 强制添加并提交最新文件
+          git add -f output/epg.xml output/epg.gz epg_merge.log
+          git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）" || true
+          # 强制同步并推送
+          git fetch origin master
+          git reset --hard origin/master
+          git add -f output/epg.xml output/epg.gz epg_merge.log
+          git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）" || true
+          git push origin master --force
 
       - name: 清理工作目录
         if: always()
