@@ -31,9 +31,10 @@ jobs:
           PYTHONIOENCODING: utf-8  # 避免中文编码问题
 
       - name: 运行EPG合并脚本
-        run: python main.py
-        env:
-          PYTHONIOENCODING: utf-8
+  run: python merge.py  # 将main.py改为merge.py
+  env:
+    PYTHONIOENCODING: utf-8
+
 
       - name: 检查输出文件
         run: |
