@@ -1,4 +1,4 @@
-name: EPG自动更新
+name: EPG自动更新（酷9适配版）
 
 on:
   schedule:
