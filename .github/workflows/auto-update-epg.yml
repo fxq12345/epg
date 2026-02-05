@@ -1,99 +1,71 @@
-version: '1.0'
 name: EPG自动更新（酷9适配版·强制覆盖）
 
-# 触发规则：定时UTC 17:00(北京次日01:00) + 手动触发
-trigger:
+on:
   schedule:
-    - cron: "0 17 * * *"
-      branches:
-        - master
-  manual:
-    branches:
-      - master
+    - cron: '0 17 * * *'  # 每天UTC时间17:00（对应北京时间次日凌晨1点）自动运行
+  workflow_dispatch:     # 允许手动触发
 
-# 全局变量
-variables:
-  GIT_USER_NAME: "Gitee Go Bot"
-  GIT_USER_EMAIL: "ci@gitee.com"
-  PYTHON_VERSION: "3.10"
-  BRANCH: "master"
-
-stages:
-  - name: build-epg
-    display_name: 生成并强制更新EPG
+jobs:
+  build-epg:
+    runs-on: ubuntu-latest
     steps:
-      # 拉取代码
-      - checkout: auto
+      - name: 拉取代码仓库
+        uses: actions/checkout@v4
         with:
-          ref: ${BRANCH}
-          fetch_depth: 0
+          ref: 'master'
+          fetch-depth: 0
           clean: true
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 配置Python
-      - name: setup-python
-        use: python:${PYTHON_VERSION}
+      - name: 配置Python环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
 
-      # 升级pip+安装依赖
-      - name: install-deps
-        script:
-          - python -m pip install --upgrade pip
-          - pip install requests lxml
-        cache:
-          key: pip-cache
-          paths:
-            - ~/.cache/pip
+      - name: 安装依赖包
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests lxml
 
-      # 运行合并脚本
-      - name: run-merge
-        script:
-          - export PYTHONIOENCODING=utf-8
-          - python merge.py
+      - name: 运行EPG合并脚本
+        run: python merge.py
+        env:
+          PYTHONIOENCODING: utf-8
 
-      # 检查输出文件
-      - name: check-output
-        script:
-          - mkdir -p output
-          - cd output
-          - |
-            if [ ! -f "epg.xml" ] || [ ! -f "epg.gz" ]; then
-              echo "❌ 目标文件生成失败"
-              exit 1
-            else
-              echo "✅ 目标文件生成成功"
-            fi
+      - name: 检查输出文件
+        run: |
+          mkdir -p output
+          if [ ! -f "output/epg.xml" ] || [ ! -f "output/epg.gz" ]; then
+            echo "❌ 目标文件生成失败"
+            exit 1
+          else
+            echo "✅ 目标文件生成成功"
+          fi
 
-      # Git身份配置
-      - name: config-git
-        script:
-          - git config --global user.name "${GIT_USER_NAME}"
-          - git config --global user.email "${GIT_USER_EMAIL}"
-          - git config --global --add safe.directory /gitee/workspace
+      - name: 强制覆盖提交（替换远程EPG文件）
+        run: |
+          set -x
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git rm -r --cached output/epg.xml output/epg.gz || true
+          git add -f output/epg.xml output/epg.gz epg_merge.log
+          if git diff --cached --quiet; then
+            echo "ℹ️ 无EPG文件变更，跳过提交推送"
+            exit 0
+          fi
+          git commit -m "强制更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
+          if git push origin master --force; then
+            echo "✅ GitHub 推送成功"
+          else
+            echo "⚠️ GitHub 推送失败，已跳过不影响流水线"
+            exit 0
+          fi
+          set +x
 
-      # 强制覆盖提交+推送：失败不中断，仅记录警告
-      - name: force-commit-push
-        script:
-          - set -x
-          - git rm -r --cached output/epg.xml output/epg.gz || true
-          - git add -f output/epg.xml output/epg.gz epg_merge.log
-          - |
-            if git diff --cached --quiet; then
-              echo "ℹ️ 无EPG文件变更，跳过提交推送"
-              exit 0
-            fi
-          - git commit -m "强制更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
-          - |
-            if git push origin ${BRANCH} --force; then
-              echo "✅ Gitee 推送成功"
-            else
-              echo "⚠️ Gitee 推送失败，已跳过不影响流水线，可检查分支保护/权限"
-              exit 0
-            fi
-          - set +x
-
-      # 清理（always=无论成败都执行）
-      - name: clean-up
+      - name: 清理工作目录
         if: always()
-        script:
-          - rm -rf __pycache__
-          - rm -f epg_merge.log
-          - rm -rf output/__pycache__
+        run: |
+          rm -rf __pycache__
+          rm -f epg_merge.log
+          rm -rf output/__pycache__
