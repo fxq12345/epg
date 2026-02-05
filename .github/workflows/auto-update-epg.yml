@@ -65,7 +65,7 @@ jobs:
           GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           # 替换为你的Gitee仓库地址，格式：用户名/仓库名
-          GITEE_REPO: "room-efficiency/epg"
+          GITEE_REPO: "房效强/epg-gitee"
         run: |
           set -x
           # 添加Gitee远程仓库
