@@ -59,25 +59,26 @@ jobs:
           fi
           set +x
 
-      - name: 同步更新到Gitee仓库
+      - name: 同步更新到Gitee仓库（失败仅提示）
         env:
           # 在GitHub仓库的Secrets中配置这两个变量：GITEE_USERNAME, GITEE_TOKEN
           GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           # 替换为你的Gitee仓库地址，格式：用户名/仓库名
-          GITEE_REPO: "fxq12345/epg"
+          GITEE_REPO: "room-efficiency/epg"
         run: |
           set -x
           # 添加Gitee远程仓库
-          git remote add gitee https://${GITEE_USERNAME}:${GITEE_TOKEN}@gitee.com/${GITEE_REPO}.git
+          git remote add gitee https://${GITEE_USERNAME}:${GITEE_TOKEN}@gitee.com/${GITEE_REPO}.git || true
           # 强制推送当前分支到Gitee
           if git push gitee master --force; then
             echo "✅ 成功同步到Gitee仓库"
           else
-            echo "⚠️ Gitee同步失败，请检查Token和仓库地址"
-            exit 1
+            echo "⚠️ Gitee同步失败，请检查Token和仓库地址，已跳过不影响整体流程"
+            # 不执行 exit 1，仅打印警告，让 workflow 继续
           fi
           set +x
+        continue-on-error: true  # 关键：即使此步骤失败，整个job也继续
 
       - name: 清理工作目录
         if: always()
