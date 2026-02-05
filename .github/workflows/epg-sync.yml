@@ -1,0 +1,55 @@
+name: EPG Build and Sync
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build-and-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装依赖包
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip
+          pip3 install -r requirements.txt
+
+      - name: 运行EPG合并脚本
+        run: |
+          python3 merge_epg.py
+
+      - name: 检查输出文件
+        run: |
+          ls -la output/
+
+      - name: 提交并推送更新到GitHub
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add output/*.xml
+          git commit -m "Auto-update EPG data"
+          git push origin HEAD:master
+
+      - name: 同步更新到Gitee仓库
+        run: |
+          set -x
+          # 配置Git用户信息
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          
+          # 添加Gitee远程仓库（使用你的真实用户名room-efficiency）
+          git remote add gitee https://${{ secrets.GITEE_USERNAME }}:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ secrets.GITEE_USERNAME }}/epg.git
+          
+          # 强制推送更新
+          git push gitee HEAD:master --force
+        if: success()
+
+      - name: 清理工作目录
+        run: |
+          rm -rf output/
