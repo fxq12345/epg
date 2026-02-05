@@ -1,15 +1,15 @@
-name: EPG自动更新（酷9适配版·强制覆盖）
+name: EPG自动更新并同步到Gitee（酷9适配版）
 
 on:
   schedule:
-    - cron: '0 17 * * *'  # 每天UTC时间17:00（对应北京时间次日凌晨1点）自动运行
+    - cron: '0 17 * * *'  # 每天UTC 17:00（北京时间次日01:00）自动运行
   workflow_dispatch:     # 允许手动触发
 
 jobs:
-  build-epg:
+  build-and-sync:
     runs-on: ubuntu-latest
     steps:
-      - name: 拉取代码仓库
+      - name: 拉取GitHub代码仓库
         uses: actions/checkout@v4
         with:
           ref: 'master'
@@ -43,7 +43,7 @@ jobs:
             echo "✅ 目标文件生成成功"
           fi
 
-      - name: 强制覆盖提交（替换远程EPG文件）
+      - name: 提交并推送更新到GitHub
         run: |
           set -x
           git config --global user.name "GitHub Actions"
@@ -51,15 +51,31 @@ jobs:
           git rm -r --cached output/epg.xml output/epg.gz || true
           git add -f output/epg.xml output/epg.gz epg_merge.log
           if git diff --cached --quiet; then
-            echo "ℹ️ 无EPG文件变更，跳过提交推送"
-            exit 0
-          fi
-          git commit -m "强制更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
-          if git push origin master --force; then
-            echo "✅ GitHub 推送成功"
+            echo "ℹ️ 无EPG文件变更，跳过GitHub提交"
           else
-            echo "⚠️ GitHub 推送失败，已跳过不影响流水线"
-            exit 0
+            git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
+            git push origin master --force
+            echo "✅ GitHub推送成功"
+          fi
+          set +x
+
+      - name: 同步更新到Gitee仓库
+        env:
+          # 在GitHub仓库的Secrets中配置这两个变量：GITEE_USERNAME, GITEE_TOKEN
+          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          # 替换为你的Gitee仓库地址，格式：用户名/仓库名
+          GITEE_REPO: "fxq12345/epg"
+        run: |
+          set -x
+          # 添加Gitee远程仓库
+          git remote add gitee https://${GITEE_USERNAME}:${GITEE_TOKEN}@gitee.com/${GITEE_REPO}.git
+          # 强制推送当前分支到Gitee
+          if git push gitee master --force; then
+            echo "✅ 成功同步到Gitee仓库"
+          else
+            echo "⚠️ Gitee同步失败，请检查Token和仓库地址"
+            exit 1
           fi
           set +x
 
