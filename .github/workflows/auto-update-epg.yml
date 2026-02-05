@@ -2,7 +2,7 @@ name: EPG自动更新（酷9适配版·强制覆盖）
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 每天北京时间8点自动运行
+    - cron: '0 17 * * *'  # 每天UTC时间17:00（对应北京时间次日凌晨1点）自动运行
   workflow_dispatch:     # 允许手动触发
 
 jobs:
