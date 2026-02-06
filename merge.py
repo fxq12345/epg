@@ -47,7 +47,7 @@ class EPGGenerator:
         retry_strategy = Retry(
             total=CORE_RETRY_COUNT + 2,
             backoff_factor=1.5,
-            status_forcelist=,
+            status_forcelist=[429, 500, 502, 503, 504],
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)
         session.mount("http://", adapter)
