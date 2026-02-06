@@ -9,7 +9,7 @@ jobs:
   build-and-sync:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 拉取GitHub代码仓库
+      - name: 拉取GitHub代码仓库
         uses: actions/checkout@v4
         with:
           ref: 'master'
@@ -17,32 +17,25 @@ jobs:
           clean: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 2. 配置Python环境
+      - name: 配置Python环境
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: 3. 安装依赖包
+      - name: 安装依赖包
         run: |
           python -m pip install --upgrade pip
           pip install requests lxml
 
-      # ======================= 关键修改 1: 潍坊爬虫容错 =======================
-      - name: 4. 🟡 运行潍坊爬虫 (失败不中断)
-        run: |
-          mkdir -p output
-          python weifang_epg_spider.py
-        # 核心配置：即使这里报错 (Exit Code != 0)，也继续下一步
-        continue-on-error: true
-
-      - name: 5. 🔵 运行EPG合并脚本
+      - name: 运行EPG合并脚本
         run: python merge.py
         env:
           PYTHONIOENCODING: utf-8
 
-      - name: 6. 检查输出文件
+      - name: 检查输出文件
         run: |
+          mkdir -p output
           if [ ! -f "output/epg.xml" ] || [ ! -f "output/epg.gz" ]; then
             echo "❌ 目标文件生成失败"
             exit 1
@@ -50,7 +43,7 @@ jobs:
             echo "✅ 目标文件生成成功"
           fi
 
-      - name: 7. 提交并推送更新到GitHub
+      - name: 提交并推送更新到GitHub
         run: |
           set -x
           git config --global user.name "GitHub Actions"
@@ -66,34 +59,29 @@ jobs:
           fi
           set +x
 
-      # ======================= 关键修改 2: Gitee 同步容错 =======================
-      - name: 8. 🟠 同步更新到Gitee仓库 (失败仅提示)
+      - name: 同步更新到Gitee仓库（失败仅提示）
         env:
-          GITEE_SSH_PRIVATE_KEY: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
-          GITEE_REPO: "git@gitee.com:room-efficiency/epg.git"
+          # 在GitHub仓库的Secrets中配置这两个变量：GITEE_USERNAME, GITEE_TOKEN
+          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          # 替换为你的Gitee仓库地址，格式：用户名/仓库名
+          GITEE_REPO: "room-efficiency/epg"
         run: |
           set -x
-          # 配置SSH
-          mkdir -p ~/.ssh
-          echo "$GITEE_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan gitee.com >> ~/.ssh/known_hosts 2>/dev/null || true
-          
-          # 添加Gitee远程仓库并推送
-          git remote add gitee $GITEE_REPO || true
+          # 添加Gitee远程仓库
+          git remote add gitee https://${GITEE_USERNAME}:${GITEE_TOKEN}@gitee.com/${GITEE_REPO}.git || true
+          # 强制推送当前分支到Gitee
           if git push gitee master --force; then
             echo "✅ 成功同步到Gitee仓库"
           else
-            echo "⚠️ Gitee同步失败 (网络波动或密钥问题)，流程继续"
+            echo "⚠️ Gitee同步失败，请检查Token和仓库地址，已跳过不影响整体流程"
+            # 不执行 exit 1，仅打印警告，让 workflow 继续
           fi
           set +x
-        # 核心配置：即使Gitee推送失败，也标记这一步为"成功"，不中断主流程
-        continue-on-error: true
+        continue-on-error: true  # 关键：即使此步骤失败，整个job也继续
 
-      # ======================= 关键修改 3: 清理逻辑 =======================
-      - name: 9. 🟢 清理工作目录
-        # 不需要 if: always()，因为上面两步都加了 continue-on-error
-        # 如果你想确保这一步总是运行，可以加上 if: ${{ always() }}
+      - name: 清理工作目录
+        if: always()
         run: |
           rm -rf __pycache__
           rm -f epg_merge.log
