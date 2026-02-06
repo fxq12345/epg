@@ -2,7 +2,7 @@ name: EPG自动更新并同步到Gitee（酷9适配版）
 
 on:
   schedule:
-    - cron: '0 17 * * *'  # 每天UTC 17:00（北京时间次日01:00）自动运行
+    - cron: '0 17 * * *'  # 每天UTC 17:00（北京时间次日01:01）自动运行
   workflow_dispatch:     # 允许手动触发
 
 jobs:
@@ -26,7 +26,19 @@ jobs:
       - name: 安装依赖包
         run: |
           python -m pip install --upgrade pip
-          pip install requests lxml
+          # 注意：爬虫需要 beautifulsoup4，合并脚本可能需要其他库，这里一并安装
+          pip install requests lxml beautifulsoup4
+
+      # =============== ⭐ 新增步骤：运行潍坊EPG爬虫 (带容错) ⭐ ===============
+      - name: 🕷️ 运行潍坊EPG爬虫 (失败仅提示)
+        run: |
+          mkdir -p output
+          python weifang_epg_spider.py || echo "⚠️ 潍坊EPG抓取失败，将使用旧数据或空数据继续流程"
+        env:
+          PYTHONIOENCODING: utf-8
+        # 关键配置：即使这一步报错，也继续执行后续步骤
+        continue-on-error: true
+      # ===================================================
 
       - name: 运行EPG合并脚本
         run: python merge.py
@@ -64,7 +76,7 @@ jobs:
             fi
           fi
           set +x
-        continue-on-error: true  # 确保推送失败时整个job继续运行
+        continue-on-error: true
 
       - name: 同步更新到Gitee仓库（SSH方式）
         env:
@@ -86,7 +98,7 @@ jobs:
             echo "⚠️ Gitee同步失败"
           fi
           set +x
-        continue-on-error: true  # 关键：即使此步骤失败，整个job也继续
+        continue-on-error: true
 
       - name: 清理工作目录
         if: always()
