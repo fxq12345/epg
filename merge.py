@@ -11,7 +11,7 @@ from lxml import etree
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-===================== 配置区 =====================
+# ===================== 配置区 =====================
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
 LOG_FILE = "epg_merge.log"
@@ -31,7 +31,7 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-==================================================
+# ==================================================
 
 class EPGGenerator:
     def __init__(self):
@@ -47,7 +47,7 @@ class EPGGenerator:
         retry_strategy = Retry(
             total=CORE_RETRY_COUNT + 2,
             backoff_factor=1.5,
-            status_forcelist=[429, 500, 502, 503, 504],
+            status_forcelist=,
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)
         session.mount("http://", adapter)
@@ -210,9 +210,11 @@ class EPGGenerator:
             return False
 
 def main():
+    """程序入口点"""
     generator = EPGGenerator()
     success = generator.run()
     exit(0 if success else 1)
 
+# 确保脚本可以直接运行
 if __name__ == "__main__":
     main()
