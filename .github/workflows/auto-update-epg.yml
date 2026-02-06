@@ -48,23 +48,16 @@ jobs:
           set -x
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          # 先强制拉取远程最新代码，解决分支不一致问题
-          git pull origin master --force
           git rm -r --cached output/epg.xml output/epg.gz || true
           git add -f output/epg.xml output/epg.gz epg_merge.log
           if git diff --cached --quiet; then
             echo "ℹ️ 无EPG文件变更，跳过GitHub提交"
           else
             git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
-            # 推送失败仅提示，不中断流程
-            if git push origin master --force; then
-              echo "✅ GitHub推送成功"
-            else
-              echo "⚠️ GitHub推送失败"
-            fi
+            git push origin master --force
+            echo "✅ GitHub推送成功"
           fi
           set +x
-        continue-on-error: true  # 确保推送失败时整个job继续运行
 
       - name: 同步更新到Gitee仓库（SSH方式）
         env:
@@ -94,4 +87,3 @@ jobs:
           rm -rf __pycache__
           rm -f epg_merge.log
           rm -rf output/__pycache__
-
