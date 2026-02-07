@@ -5,83 +5,48 @@ on:
     - cron: '0 17 * * *'
   workflow_dispatch:
 
-# 10分钟强制终止，不删旧文件也能用
 timeout-minutes: 10
 
 jobs:
   build-and-sync:
     runs-on: ubuntu-latest
     steps:
-      - name: 拉取GitHub代码仓库
+      - name: 拉取代码
         uses: actions/checkout@v4
         with:
-          ref: 'master'
           fetch-depth: 0
-          clean: true
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 配置Python环境
+      - name: 配置Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'
 
-      - name: 安装依赖包
+      - name: 安装依赖
         run: |
-          python -m pip install --upgrade pip
           pip install requests lxml beautifulsoup4
 
-      - name: 运行EPG合并脚本
+      - name: 运行合并脚本
         run: python merge.py
-        env:
-          PYTHONIOENCODING: utf-8
         continue-on-error: true
 
-      - name: 检查输出文件
+      - name: 提交推送GitHub
         run: |
-          mkdir -p output
-          if [ ! -f "output/epg.xml" ] || [ ! -f "output/epg.gz" ]; then
-            echo "❌ 目标文件生成失败"
-            exit 0
-          else
-            echo "✅ 目标文件生成成功"
-          fi
-        continue-on-error: true
-
-      - name: 提交并推送更新到GitHub
-        run: |
-          set -x
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git pull origin master --force
-          git rm -r --cached output/epg.xml output/epg.gz output/weifang.xml || true
-          git add -f output/epg.xml output/epg.gz output/weifang.xml epg_merge.log
-          if git diff --cached --quiet; then
-            echo "ℹ️ 无EPG文件变更，跳过GitHub提交"
-          else
-            git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
-            git push origin master --force
-          fi
-          set +x
+          mkdir -p output
+          git add -f output/epg.xml output/epg.gz output/weifang.xml || true
+          git commit -m "自动更新EPG" --allow-empty
+          git push -f origin master || true
         continue-on-error: true
 
-      - name: 同步更新到Gitee仓库
+      - name: 同步Gitee
         env:
           GITEE_SSH_PRIVATE_KEY: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
-          GITEE_REPO: "git@gitee.com:room-efficiency/epg.git"
         run: |
-          set -x
           mkdir -p ~/.ssh
           echo "$GITEE_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan gitee.com >> ~/.ssh/known_hosts 2>/dev/null
-          git remote add gitee $GITEE_REPO 2>/dev/null
-          git push gitee master --force 2>/dev/null
-          set +x
+          git remote add gitee git@gitee.com:room-efficiency/epg.git 2>/dev/null
+          git push -f gitee master 2>/dev/null || true
         continue-on-error: true
-
-      - name: 清理工作目录
-        if: always()
-        run: |
-          rm -rf __pycache__
-          rm -f epg_merge.log
