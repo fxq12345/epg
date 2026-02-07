@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -21,11 +23,13 @@ jobs:
         run: python merge.py
         continue-on-error: true
 
-      - name: Push to GitHub
+      - name: 强制更新文件时间并推送
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git add -f output/*.xml output/*.gz 2>/dev/null || true
-          git commit -m "update epg" 2>/dev/null || true
-          git push -f origin main 2>/dev/null || true
+          # 强制刷新文件时间戳
+          touch output/epg.xml output/epg.gz output/weifang.xml
+          git add -f output/epg.xml output/epg.gz output/weifang.xml
+          git commit -m "强制更新EPG文件 $(date +'%Y-%m-%d %H:%M:%S')" --allow-empty
+          git push -f origin master
         continue-on-error: true
