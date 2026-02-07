@@ -11,42 +11,67 @@ jobs:
   build-and-sync:
     runs-on: ubuntu-latest
     steps:
-      - name: 拉取代码
+      - name: 拉取GitHub代码仓库
         uses: actions/checkout@v4
         with:
+          ref: 'master'
           fetch-depth: 0
+          clean: true
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 配置Python
+      - name: 配置Python环境
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip'
 
-      - name: 安装依赖
+      - name: 安装依赖包
         run: |
+          python -m pip install --upgrade pip
           pip install requests lxml beautifulsoup4
 
-      - name: 运行合并脚本
+      - name: 运行EPG合并脚本
         run: python merge.py
+        env:
+          PYTHONIOENCODING: utf-8
         continue-on-error: true
 
-      - name: 提交推送GitHub
+      - name: 检查输出文件
+        run: |
+          mkdir -p output
+          if [ ! -f "output/epg.xml" ] || [ ! -f "output/epg.gz" ]; then
+            echo "❌ 目标文件生成失败"
+            exit 0
+          else
+            echo "✅ 目标文件生成成功"
+          fi
+        continue-on-error: true
+
+      - name: 提交并推送更新到GitHub
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          mkdir -p output
-          git add -f output/epg.xml output/epg.gz output/weifang.xml || true
-          git commit -m "自动更新EPG" --allow-empty
+          git pull origin master --force
+          git add -f output/epg.xml output/epg.gz output/weifang.xml epg_merge.log || true
+          git commit -m "自动更新EPG数据" || true
           git push -f origin master || true
         continue-on-error: true
 
-      - name: 同步Gitee
+      - name: 同步更新到Gitee仓库
         env:
           GITEE_SSH_PRIVATE_KEY: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
+          GITEE_REPO: "git@gitee.com:room-efficiency/epg.git"
         run: |
           mkdir -p ~/.ssh
           echo "$GITEE_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan gitee.com >> ~/.ssh/known_hosts 2>/dev/null
-          git remote add gitee git@gitee.com:room-efficiency/epg.git 2>/dev/null
+          git remote add gitee $GITEE_REPO 2>/dev/null
           git push -f gitee master 2>/dev/null || true
         continue-on-error: true
+
+      - name: 清理工作目录
+        if: always()
+        run: |
+          rm -rf __pycache__
+          rm -f epg_merge.log
