@@ -1,4 +1,1 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<tv>
-    <!-- 潍坊EPG抓取失败或无数据 -->
-</tv>
+<tv><channel id="潍坊新闻频道"><display-name>潍坊新闻频道</display-name></channel><channel id="潍坊经济生活频道"><display-name>潍坊经济生活频道</display-name></channel><channel id="潍坊科教频道"><display-name>潍坊科教频道</display-name></channel><channel id="潍坊公共频道"><display-name>潍坊公共频道</display-name></channel></tv>
