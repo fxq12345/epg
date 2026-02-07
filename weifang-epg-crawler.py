@@ -7,7 +7,7 @@ from xml.dom import minidom
 import time
 import random
 
-# 可选Selenium支持
+# 可选 Selenium 支持
 try:
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
@@ -16,12 +16,11 @@ except ImportError:
     SELENIUM_AVAILABLE = False
 
 # ===================== 配置区 =====================
-# 频道ID修改为盒子兼容极简名称，彻底解决识别为空
 CHANNELS = [
-    ("潍坊新闻", "https://m.tvsou.com/epg/db502561"),
-    ("潍坊经济", "https://m.tvsou.com/epg/47a9d24a"),
-    ("潍坊科教", "https://m.tvsou.com/epg/d131d3d1"),
-    ("潍坊公共", "https://m.tvsou.com/epg/c06f0cc0")
+    ("潍坊新闻频道", "https://m.tvsou.com/epg/db502561"),
+    ("潍坊经济生活频道", "https://m.tvsou.com/epg/47a9d24a"),
+    ("潍坊科教频道", "https://m.tvsou.com/epg/d131d3d1"),
+    ("潍坊公共频道", "https://m.tvsou.com/epg/c06f0cc0")
 ]
 
 WEEK_MAP = {
@@ -67,7 +66,7 @@ def get_page_html(url):
             chrome_options = Options()
             chrome_options.add_argument("--headless=new")
             chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-dev-chrome-usage")
             chrome_options.add_argument(f"user-agent={HEADERS['User-Agent']}")
             driver = webdriver.Chrome(options=chrome_options)
             driver.get(url)
@@ -111,17 +110,15 @@ def get_day_program(channel_name, channel_base_url, week_name, w_suffix):
         print(f"❌ {week_name} 异常: {e}")
     return programs
 
-# ===================== 机顶盒全兼容XML生成（修复识别为空） =====================
+# ===================== XML 生成 =====================
 def build_weifang_xml(all_channel_data):
     root = ET.Element("tv")
-    root.set("source-info-name", "WeifangEPG")
-    root.set("generator", "WeifangAutoCrawler")
+    root.set("source-info-name", "Weifang Local EPG Auto")
 
-    # 写入标准频道节点，名称极简，全设备兼容
+    # 频道信息
     for channel_name, _ in CHANNELS:
         ch = ET.SubElement(root, "channel", id=channel_name)
-        display = ET.SubElement(ch, "display-name")
-        display.text = channel_name
+        ET.SubElement(ch, "display-name", lang="zh").text = channel_name
 
     today = datetime.now()
     monday = today - timedelta(days=today.weekday())
@@ -138,29 +135,22 @@ def build_weifang_xml(all_channel_data):
 
                 start_xml = time_to_xmltv(current_date, start_time_str)
                 end_xml = time_to_xmltv(current_date, end_time_str)
-                if start_xml and end_xml and title:
+                if start_xml and end_xml:
                     prog = ET.SubElement(root, "programme")
                     prog.set("start", start_xml)
                     prog.set("stop", end_xml)
                     prog.set("channel", channel_name)
-                    
-                    title_node = ET.SubElement(prog, "title")
-                    title_node.text = title
-                    desc_node = ET.SubElement(prog, "desc")
-                    desc_node.text = title
+                    ET.SubElement(prog, "title", lang="zh").text = title
+                    ET.SubElement(prog, "desc", lang="zh").text = f"{channel_name} {start_time_str} {title}"
 
-    # 标准XML头，强制utf-8，机顶盒100%识别
     rough_string = ET.tostring(root, encoding='utf-8')
     reparsed = minidom.parseString(rough_string)
-    xml_output = reparsed.toprettyxml(indent="  ", encoding='utf-8').decode('utf-8')
-    # 替换为空行，修复格式兼容问题
-    xml_output = xml_output.replace('<?xml version="1.0" ?>', '<?xml version="1.0" encoding="UTF-8"?>')
-    return xml_output.encode('utf-8')
+    return reparsed.toprettyxml(indent="  ", encoding="utf-8")
 
-# ===================== 主程序 =====================
+# ===================== 主程序（修复中文bytes报错，强制写入） =====================
 def main():
     print("="*60)
-    print("🚀 潍坊4频道 EPG 抓取（机顶盒兼容修复版）")
+    print("🚀 潍坊4频道 EPG 抓取（强制覆盖版）")
     print("="*60)
 
     all_channel_data = {}
@@ -173,23 +163,17 @@ def main():
             time.sleep(1 + random.random()*1.5)
         all_channel_data[channel_name] = week_data
 
-    # 兜底生成标准XML，绝对不会被识别为空
+    # 修复：去掉中文，解决bytes ASCII语法错误，失败生成标准空白XML
     try:
         xml_bytes = build_weifang_xml(all_channel_data)
     except Exception:
-        xml_str = '''<?xml version="1.0" encoding="UTF-8"?>
-<tv source-info-name="WeifangEPG">
-<channel id="潍坊新闻"><display-name>潍坊新闻</display-name></channel>
-<channel id="潍坊经济"><display-name>潍坊经济</display-name></channel>
-<channel id="潍坊科教"><display-name>潍坊科教</display-name></channel>
-<channel id="潍坊公共"><display-name>潍坊公共</display-name></channel>
-</tv>'''
-        xml_bytes = xml_str.encode('utf-8')
+        xml_content = '<?xml version="1.0" encoding="utf-8"?>\n<tv source-info-name="Weifang-EPG-Backup"></tv>\n'
+        xml_bytes = xml_content.encode('utf-8')
 
     try:
         with open("weifang_4channels_epg.xml", "wb") as f:
             f.write(xml_bytes)
-        print("\n✅ 兼容版XML已写入，盒子可正常识别！")
+        print("\n✅ 文件已强制写入：weifang_4channels_epg.xml")
     except Exception as e:
         print(f"\n❌ 写入失败: {e}")
 
