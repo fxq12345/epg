@@ -66,7 +66,7 @@ def get_page_html(url):
             chrome_options = Options()
             chrome_options.add_argument("--headless=new")
             chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-dev-chrome-usage")
             chrome_options.add_argument(f"user-agent={HEADERS['User-Agent']}")
             driver = webdriver.Chrome(options=chrome_options)
             driver.get(url)
@@ -113,7 +113,7 @@ def get_day_program(channel_name, channel_base_url, week_name, w_suffix):
 # ===================== XML 生成 =====================
 def build_weifang_xml(all_channel_data):
     root = ET.Element("tv")
-    root.set("source-info-name", "潍坊四频道EPG自动抓取")
+    root.set("source-info-name", "Weifang Local EPG Auto")
 
     # 频道信息
     for channel_name, _ in CHANNELS:
@@ -147,7 +147,7 @@ def build_weifang_xml(all_channel_data):
     reparsed = minidom.parseString(rough_string)
     return reparsed.toprettyxml(indent="  ", encoding="utf-8")
 
-# ===================== 主程序（强制写入，失败也生成空文件保证提交） =====================
+# ===================== 主程序（修复中文bytes报错，强制写入） =====================
 def main():
     print("="*60)
     print("🚀 潍坊4频道 EPG 抓取（强制覆盖版）")
@@ -163,18 +163,19 @@ def main():
             time.sleep(1 + random.random()*1.5)
         all_channel_data[channel_name] = week_data
 
-    # 强制写入：成功写正常XML，失败写最小合法XML，确保文件一定存在
+    # 修复：去掉中文，解决bytes ASCII语法错误，失败生成标准空白XML
     try:
         xml_bytes = build_weifang_xml(all_channel_data)
-    except:
-        xml_bytes = b'<?xml version="1.0"?>\n<tv source-info-name="潍坊EPG-异常备用"></tv>\n'
+    except Exception:
+        xml_content = '<?xml version="1.0" encoding="utf-8"?>\n<tv source-info-name="Weifang-EPG-Backup"></tv>\n'
+        xml_bytes = xml_content.encode('utf-8')
 
     try:
         with open("weifang_4channels_epg.xml", "wb") as f:
             f.write(xml_bytes)
         print("\n✅ 文件已强制写入：weifang_4channels_epg.xml")
     except Exception as e:
-        print(f"\n❌ 写入失败（致命）: {e}")
+        print(f"\n❌ 写入失败: {e}")
 
 if __name__ == "__main__":
     main()
