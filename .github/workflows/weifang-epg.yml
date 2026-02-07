@@ -1,0 +1,37 @@
+name: 潍坊4频道EPG自动更新【强制覆盖·失败也提交】
+on:
+  schedule:
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+jobs:
+  weifang-epg:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: 设置 Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: pip install requests beautifulsoup4
+
+      - name: 运行抓取脚本（强制生成文件）
+        run: python weifang-epg-crawler.py
+
+      - name: 强制提交·覆盖远程·一定写入仓库
+        uses: EndBug/add-and-commit@v9
+        with:
+          message: "【强制覆盖】潍坊4频道EPG自动更新"
+          add: "weifang_4channels_epg.xml"
+          default_author: github_actions
+          push: "--force"
+          pull_strategy: "no-pull"
