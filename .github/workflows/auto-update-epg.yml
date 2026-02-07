@@ -1,47 +1,31 @@
 name: EPG自动更新
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 17 * * *'
-
-timeout-minutes: 10
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install
+      - name: Install dependencies
         run: pip install requests lxml beautifulsoup4
+        continue-on-error: true
 
-      - name: Run Script
+      - name: Run merge script
         run: python merge.py
         continue-on-error: true
 
-      - name: Push GitHub
+      - name: Push to GitHub
         run: |
-          git config --global user.name "bot"
-          git config --global user.email "bot@github.com"
-          git add -f output/*.xml output/*.gz || true
-          git commit -m "update" --allow-empty
-          git push -f origin master || true
-        continue-on-error: true
-
-      - name: Push Gitee
-        env:
-          KEY: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
-        run: |
-          mkdir -p ~/.ssh
-          echo "$KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan gitee.com >> ~/.ssh/known_hosts 2>/dev/null
-          git remote add gitee git@gitee.com:room-efficiency/epg.git 2>/dev/null
-          git push -f gitee master 2>/dev/null || true
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add -f output/*.xml output/*.gz 2>/dev/null || true
+          git commit -m "update epg" 2>/dev/null || true
+          git push -f origin main 2>/dev/null || true
         continue-on-error: true
