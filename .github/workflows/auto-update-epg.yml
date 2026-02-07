@@ -24,7 +24,7 @@ jobs:
         run: python merge.py
         continue-on-error: true
 
-      - name: 强制更新文件时间并推送
+      - name: 强制更新文件时间并推送GitHub
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
@@ -32,4 +32,21 @@ jobs:
           git add -f output/epg.xml output/epg.gz output/weifang.xml
           git commit -m "强制更新EPG文件 $(date +'%Y-%m-%d %H:%M:%S')" --allow-empty
           git push -f origin master
+        continue-on-error: true
+
+      - name: 同步推送至Gitee仓库
+        env:
+          GITEE_SSH_PRIVATE_KEY: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$GITEE_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan gitee.com >> ~/.known_hosts 2>/dev/null
+          git remote add gitee git@gitee.com:room-efficiency/epg.git 2>/dev/null
+
+          if git push -f gitee master; then
+            echo "✅ Gitee 推送成功"
+          else
+            echo "⚠️ Gitee 推送失败，已跳过"
+          fi
         continue-on-error: true
