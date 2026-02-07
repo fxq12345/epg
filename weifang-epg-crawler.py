@@ -7,9 +7,9 @@ from xml.dom import minidom
 
 # ===================== 4个潍坊频道专属配置（周播w1-w7） =====================
 CHANNELS = [
-    ("潍坊新闻频道", "https://m.tvsou.com/epg/db502561/w6"),
-    ("潍坊经济生活频道", "https://m.tvsou.com/epg/47a9d24a/w2"),
-    ("潍坊科教频道", "https://m.tvsou.com/epg/d131d3d1/w6"),
+    ("潍坊新闻频道", "https://m.tvsou.com/epg/db502561/"),
+    ("潍坊经济生活频道", "https://m.tvsou.com/epg/47a9d24a/"),
+    ("潍坊科教频道", "https://m.tvsou.com/epg/d131d3d1/"),
     ("潍坊公共频道", "https://m.tvsou.com/epg/c06f0cc0/")
 ]
 
