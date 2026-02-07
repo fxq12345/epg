@@ -16,12 +16,28 @@ signal.alarm(600)
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 潍坊四个频道
+# 潍坊四个频道（新增图标链接，酷9直接解析）
 WEIFANG_CHANNELS = [
-    ("潍坊新闻频道", "https://m.tvsou.com/epg/db502561"),
-    ("潍坊经济生活频道", "https://m.tvsou.com/epg/47a9d24a"),
-    ("潍坊科教频道", "https://m.tvsou.com/epg/d131d3d1"),
-    ("潍坊公共频道", "https://m.tvsou.com/epg/c06f0cc0")
+    (
+        "潍坊新闻频道", 
+        "https://m.tvsou.com/epg/db502561",
+        "https://picsum.photos/seed/weifang-news/200/120"  # 新闻频道图标（稳定图床）
+    ),
+    (
+        "潍坊经济生活频道", 
+        "https://m.tvsou.com/epg/47a9d24a",
+        "https://picsum.photos/seed/weifang-econ/200/120"   # 经济生活频道图标
+    ),
+    (
+        "潍坊科教频道", 
+        "https://m.tvsou.com/epg/d131d3d1",
+        "https://picsum.photos/seed/weifang-sci/200/120"    # 科教频道图标
+    ),
+    (
+        "潍坊公共频道", 
+        "https://m.tvsou.com/epg/c06f0cc0",
+        "https://picsum.photos/seed/weifang-public/200/120" # 公共频道图标
+    )
 ]
 WEEK_DAY = ["w1", "w2", "w3", "w4", "w5", "w6", "w7"]
 MAX_RETRY = 2  # 失败重试次数
@@ -71,20 +87,23 @@ def crawl_weifang_single(ch_name, base_url, day_str, current_day):
             continue
     return []  # 重试失败返回空
 
-# ====================== 潍坊整体抓取（带重试+精准时间） ======================
+# ====================== 潍坊整体抓取（带重试+精准时间+酷9图标） ======================
 def crawl_weifang():
     try:
         root = etree.Element("tv")
-        for ch_name, _ in WEIFANG_CHANNELS:
+        for ch_name, base_url, icon_url in WEIFANG_CHANNELS:  # 新增icon_url参数
             ch = etree.SubElement(root, "channel", id=ch_name)
+            # 频道名称（酷9识别用）
             dn = etree.SubElement(ch, "display-name")
             dn.text = ch_name
+            # 新增<icon>标签（酷9自动解析图标）
+            icon = etree.SubElement(ch, "icon", src=icon_url)
 
         today = datetime.now()
         for day_idx in range(7):
             current_day = today + timedelta(days=day_idx)
             day_str = WEEK_DAY[day_idx]
-            for ch_name, base_url in WEIFANG_CHANNELS:
+            for ch_name, base_url, _ in WEIFANG_CHANNELS:
                 # 调用带重试+精准时间的单频道抓取
                 programs = crawl_weifang_single(ch_name, base_url, day_str, current_day)
                 # 写入精准节目
@@ -182,7 +201,7 @@ def merge_all(weifang_file):
             wf_pg = len(wf_tree.xpath("//programme"))
 
         if wf_ch > 0 and wf_pg > 0:
-            print(f"📺 潍坊本地源：频道 {wf_ch} | 节目 {wf_pg}（时间精准匹配）")
+            print(f"📺 潍坊本地源：频道 {wf_ch} | 节目 {wf_pg}（时间精准匹配+酷9图标）")
             for node in wf_tree:
                 if node.tag in ("channel", "programme"):
                     all_channels.append(node) if node.tag == "channel" else all_programs.append(node)
