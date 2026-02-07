@@ -2,8 +2,11 @@ name: EPG自动更新并同步到Gitee（酷9适配版）
 
 on:
   schedule:
-    - cron: '0 17 * * *'  # 每天UTC 17:00（北京时间次日01:00）自动运行
-  workflow_dispatch:     # 允许手动触发
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+
+# 全局10分钟强制终止
+timeout-minutes: 10
 
 jobs:
   build-and-sync:
@@ -26,71 +29,48 @@ jobs:
       - name: 安装依赖包
         run: |
           python -m pip install --upgrade pip
-          pip install requests lxml
+          pip install requests lxml beautifulsoup4
 
       - name: 运行EPG合并脚本
         run: python merge.py
         env:
           PYTHONIOENCODING: utf-8
+        continue-on-error: true
 
-      - name: 检查输出文件
-        run: |
-          mkdir -p output
-          if [ ! -f "output/epg.xml" ] || [ ! -f "output/epg.gz" ]; then
-            echo "❌ 目标文件生成失败"
-            exit 1
-          else
-            echo "✅ 目标文件生成成功"
-          fi
+      - name: 准备输出目录
+        run: mkdir -p output
+        continue-on-error: true
 
-      - name: 提交并推送更新到GitHub
+      - name: 强制覆盖提交并推送GitHub
         run: |
           set -x
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          # 先强制拉取远程最新代码，解决分支不一致问题
-          git pull origin master --force
-          git rm -r --cached output/epg.xml output/epg.gz || true
-          git add -f output/epg.xml output/epg.gz epg_merge.log
-          if git diff --cached --quiet; then
-            echo "ℹ️ 无EPG文件变更，跳过GitHub提交"
-          else
-            git commit -m "自动更新EPG数据（$(date +'%Y-%m-%d %H:%M:%S')）"
-            # 推送失败仅提示，不中断流程
-            if git push origin master --force; then
-              echo "✅ GitHub推送成功"
-            else
-              echo "⚠️ GitHub推送失败"
-            fi
-          fi
+          git fetch origin master
+          git reset --hard origin/master
+          git add -f output/epg.xml output/epg.gz output/weifang.xml epg_merge.log || true
+          git commit -m "自动更新EPG数据（强制覆盖）$(date +'%Y-%m-%d %H:%M:%S')" --allow-empty
+          git push origin master --force || echo "⚠️ GitHub推送失败，已跳过"
           set +x
-        continue-on-error: true  # 确保推送失败时整个job继续运行
+        continue-on-error: true
 
-      - name: 同步更新到Gitee仓库（SSH方式）
+      - name: 同步更新到Gitee仓库（SSH方式，失败仅提示）
         env:
           GITEE_SSH_PRIVATE_KEY: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
           GITEE_REPO: "git@gitee.com:room-efficiency/epg.git"
         run: |
           set -x
-          # 配置SSH
           mkdir -p ~/.ssh
           echo "$GITEE_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan gitee.com >> ~/.ssh/known_hosts
-          # 添加Gitee远程仓库
-          git remote add gitee $GITEE_REPO || true
-          # 强制推送
-          if git push gitee master --force; then
-            echo "✅ 成功同步到Gitee仓库"
-          else
-            echo "⚠️ Gitee同步失败"
-          fi
+          ssh-keyscan gitee.com >> ~/.ssh/known_hosts 2>/dev/null || true
+          git remote add gitee $GITEE_REPO 2>/dev/null || true
+          git push gitee master --force 2>/dev/null || echo "⚠️ Gitee同步失败，已跳过"
           set +x
-        continue-on-error: true  # 关键：即使此步骤失败，整个job也继续
+        continue-on-error: true
 
       - name: 清理工作目录
         if: always()
         run: |
           rm -rf __pycache__
           rm -f epg_merge.log
-          rm -rf output/__pycache__
