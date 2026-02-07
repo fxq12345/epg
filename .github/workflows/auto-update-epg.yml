@@ -20,7 +20,7 @@ jobs:
         run: pip install requests lxml beautifulsoup4
         continue-on-error: true
 
-      - name: 运行合并脚本
+      - name: 运行合并脚本（显示抓取统计）
         run: python merge.py
         continue-on-error: true
 
@@ -41,7 +41,7 @@ jobs:
           mkdir -p ~/.ssh
           echo "$GITEE_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan gitee.com >> ~/.known_hosts 2>/dev/null
+          ssh-keyscan gitee.com >> ~/.ssh/known_hosts 2>/dev/null
           git remote add gitee git@gitee.com:room-efficiency/epg.git 2>/dev/null
 
           if git push -f gitee master; then
