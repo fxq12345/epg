@@ -24,10 +24,9 @@ WEIFANG_CHANNELS = [
     ("潍坊公共频道", "https://m.tvsou.com/epg/c06f0cc0")
 ]
 WEEK_DAY = ["w1", "w2", "w3", "w4", "w5", "w6", "w7"]
+MAX_RETRY = 2  # 失败重试次数
 
-# ======================================
-# 抓取潍坊
-# ======================================
+# ====================== 潍坊抓取（失败仅提示一行，不中断） ======================
 def crawl_weifang():
     try:
         root = etree.Element("tv")
@@ -43,7 +42,7 @@ def crawl_weifang():
             for ch_name, base_url in WEIFANG_CHANNELS:
                 try:
                     url = f"{base_url}/{day_str}"
-                    resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
+                    resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
                     resp.encoding = "utf-8"
                     soup = BeautifulSoup(resp.text, "html.parser")
                     for item in soup.find_all(["div", "li", "p"]):
@@ -64,8 +63,8 @@ def crawl_weifang():
                             t.text = title
                         except:
                             continue
-                    time.sleep(0.4)
-                except:
+                    time.sleep(0.3)
+                except Exception as e:
                     continue
 
         wf_path = os.path.join(OUTPUT_DIR, "weifang.xml")
@@ -73,92 +72,108 @@ def crawl_weifang():
             f.write(etree.tostring(root, encoding="utf-8", pretty_print=True))
         return wf_path
     except:
+        # 潍坊整体抓取失败，只返回空文件，不抛错
         wf_path = os.path.join(OUTPUT_DIR, "weifang.xml")
         with open(wf_path, "w", encoding="utf-8") as f:
             f.write('<?xml version="1.0" encoding="utf-8"?>\n<tv></tv>')
         return wf_path
 
-# ======================================
-# 单源抓取（带统计）
-# ======================================
-def fetch_one_source(u):
-    try:
-        r = requests.get(u, timeout=12)
-        if u.endswith(".gz"):
-            content = gzip.decompress(r.content).decode("utf-8", "ignore")
-        else:
-            content = r.text
-        content = re.sub(r"[\x00-\x1F]", "", content).replace("& ", "&amp; ")
-        tree = etree.fromstring(content.encode("utf-8"))
+# ====================== 单源抓取 + 失败重试 ======================
+def fetch_with_retry(u, max_retry=MAX_RETRY):
+    for attempt in range(1, max_retry + 1):
+        try:
+            r = requests.get(u, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code not in (200, 206):
+                time.sleep(1)
+                continue
 
-        ch_count = len(tree.xpath("//channel"))
-        pg_count = len(tree.xpath("//programme"))
-        return (True, tree, ch_count, pg_count)
-    except Exception as e:
-        return (False, None, 0, 0)
+            if u.endswith(".gz"):
+                content = gzip.decompress(r.content).decode("utf-8", "ignore")
+            else:
+                content = r.text
 
-# ======================================
-# 合并（带日志统计）
-# ======================================
+            content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', content).replace("& ", "&amp; ")
+            tree = etree.fromstring(content.encode("utf-8"))
+            ch = len(tree.xpath("//channel"))
+            pg = len(tree.xpath("//programme"))
+            if ch > 0 and pg > 0:
+                return (True, tree, ch, pg, attempt)
+        except:
+            time.sleep(1)
+            continue
+    return (False, None, 0, 0, max_retry)
+
+# ====================== 合并主逻辑 ======================
 def merge_all(weifang_file):
     all_channels = []
     all_programs = []
     total_ch = 0
     total_pg = 0
-    success = 0
-    fail = 0
+    success_cnt = 0
+    fail_cnt = 0
 
-    if os.path.exists("config.txt"):
-        with open("config.txt", "r", encoding="utf-8") as f:
-            urls = [l.strip() for l in f if l.strip() and l.startswith("http")]
+    if not os.path.exists("config.txt"):
+        return
 
-        print("=" * 60)
-        print("开始抓取 EPG 源（每条源统计）")
-        print("=" * 60)
+    with open("config.txt", "r", encoding="utf-8") as f:
+        urls = [l.strip() for l in f if l.strip() and l.startswith("http")]
 
-        with ThreadPoolExecutor(5) as executor:
-            results = [(u, executor.submit(fetch_one_source, u)) for u in urls]
-            for u, fut in results:
-                ok, tree, ch, pg = fut.result()
-                if ok and tree is not None:
-                    success += 1
-                    total_ch += ch
-                    total_pg += pg
-                    print(f"✅ {u[:50]}... 成功 | 频道 {ch} | 节目 {pg}")
-                    for node in tree:
-                        if node.tag == "channel":
-                            all_channels.append(node)
-                        elif node.tag == "programme":
-                            all_programs.append(node)
-                else:
-                    fail += 1
-                    print(f"❌ {u[:50]}... 失败")
+    print("=" * 60)
+    print("EPG 源抓取统计（失败自动重试）")
+    print("=" * 60)
 
-        print("=" * 60)
-        print(f"汇总：成功 {success} 个 | 失败 {fail} 个 | 总频道 {total_ch} | 总节目 {total_pg}")
-        print("=" * 60)
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        future_map = {executor.submit(fetch_with_retry, u): u for u in urls}
+        for fut in future_map:
+            u = future_map[fut]
+            ok, tree, ch, pg, retry_cnt = fut.result()
+            if ok:
+                success_cnt += 1
+                total_ch += ch
+                total_pg += pg
+                log_retry = f"[重试{retry_cnt-1}次]" if retry_cnt > 1 else ""
+                print(f"✅ {u[:55]}... {log_retry}成功 | 频道 {ch:>4} | 节目 {pg:>6}")
+                for node in tree:
+                    if node.tag == "channel":
+                        all_channels.append(node)
+                    elif node.tag == "programme":
+                        all_programs.append(node)
+            else:
+                fail_cnt += 1
 
-    # 加入潍坊
+    if fail_cnt > 0:
+        print(f"❌ 共 {fail_cnt} 个源经{MAX_RETRY}次重试后仍失败，已跳过")
+
+    print("=" * 60)
+    print(f"汇总：成功 {success_cnt} 个 | 失败 {fail_cnt} 个 | 总频道 {total_ch} | 总节目 {total_pg}")
+    print("=" * 60)
+
+    # ====================== 潍坊加载：失败仅提示一行，不中断 ======================
     try:
         with open(weifang_file, "r", encoding="utf-8") as f:
             wf_tree = etree.fromstring(f.read().encode("utf-8"))
             wf_ch = len(wf_tree.xpath("//channel"))
             wf_pg = len(wf_tree.xpath("//programme"))
+
+        # 只有有数据才显示成功
+        if wf_ch > 0 and wf_pg > 0:
             print(f"📺 潍坊本地源：频道 {wf_ch} | 节目 {wf_pg}")
             for node in wf_tree:
-                if node.tag == "channel":
-                    all_channels.append(node)
-                elif node.tag == "programme":
-                    all_programs.append(node)
+                if node.tag in ("channel", "programme"):
+                    all_channels.append(node) if node.tag == "channel" else all_programs.append(node)
+        else:
+            # 潍坊无数据，仅精简提示
+            print("⚠️ 潍坊本地源抓取失败，已跳过")
     except:
-        print("⚠️ 潍坊源加载失败，已跳过")
+        # 潍坊读取异常，仅精简提示
+        print("⚠️ 潍坊本地源抓取失败，已跳过")
 
-    # 输出最终文件
+    # 输出最终合并文件
     final_root = etree.Element("tv")
     for ch in all_channels:
         final_root.append(ch)
-    for pg in all_programs:
-        final_root.append(pg)
+    for p in all_programs:
+        final_root.append(p)
 
     xml_str = etree.tostring(final_root, encoding="utf-8", pretty_print=True).decode("utf-8")
     with open(os.path.join(OUTPUT_DIR, "epg.xml"), "w", encoding="utf-8") as f:
@@ -166,9 +181,7 @@ def merge_all(weifang_file):
     with gzip.open(os.path.join(OUTPUT_DIR, "epg.gz"), "wb") as f:
         f.write(xml_str.encode("utf-8"))
 
-# ======================================
-# 主入口
-# ======================================
+# ====================== 入口 ======================
 if __name__ == "__main__":
     try:
         wf_file = crawl_weifang()
