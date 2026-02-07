@@ -2,52 +2,60 @@ name: EPG自动更新
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 16 * * *'  # 每日北京时间 00:30 自动执行
+    - cron: '30 16 * * *'
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 核心：开启写入权限，没有这个永远提交不上去
+    permissions:
+      contents: write
     steps:
-      - name: 检出代码仓库
+      - name: 检出仓库
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: 配置Python环境
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: 安装依赖库
+      - name: 安装依赖
         run: pip install requests lxml beautifulsoup4
         continue-on-error: true
 
-      - name: 运行合并脚本（显示抓取统计）
+      - name: 运行合并脚本
         run: python merge.py
         continue-on-error: true
 
-      - name: 强制更新文件时间并推送GitHub
+      - name: 提交并强制推送GitHub
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          
-          # ========== 修复核心：清理未暂存修改，解决rebase报错 ==========
-          git checkout .
+          git config --global safe.directory '*'
+
+          # 清理未暂存文件，解决rebase报错
+          git reset --hard HEAD
           git clean -df
-          
-          # 拉取远程最新代码
           git pull origin master --rebase || true
+
+          # 刷新文件，确保被git识别修改
+          touch output/*
           
-          # 刷新文件时间戳
-          touch output/epg.xml output/epg.gz output/weifang.xml
+          # 强制添加所有输出文件
+          git add -f output/
+          git add -f output/*.xml output/*.gz
+
+          # 提交（一定生成提交记录）
+          git commit -m "EPG自动更新 $(date '+%Y-%m-%d %H:%M:%S')" --allow-empty
           
-          # 强制添加、提交、推送（允许空提交，避免无变更报错）
-          git add -f output/epg.xml output/epg.gz output/weifang.xml
-          git commit -m "自动更新EPG文件 $(date +'%Y-%m-%d %H:%M:%S')" --allow-empty
-          git push -f origin master
+          # 用TOKEN强制推送到当前仓库，绝对生效
+          git push -f "https://${{ secrets.GITHUB_TOKEN }}@github.com/fxq12345/epg.git" HEAD:master
         continue-on-error: true
 
-      - name: 同步推送至Gitee仓库
+      - name: 同步到Gitee
         env:
           GITEE_SSH_PRIVATE_KEY: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
         run: |
@@ -55,13 +63,7 @@ jobs:
           echo "$GITEE_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan gitee.com >> ~/.ssh/known_hosts 2>/dev/null
-          
-          # 如远程已存在则不重复添加，避免报错
-          git remote add gitee git@gitee.com:room-efficiency/epg.git 2>/dev/null || true
-
-          if git push -f gitee master; then
-            echo "✅ Gitee 推送成功"
-          else
-            echo "⚠️ Gitee 推送失败，已跳过"
-          fi
+          git remote remove gitee 2>/dev/null || true
+          git remote add gitee git@gitee.com:room-efficiency/epg.git
+          git push -f gitee master || echo "Gitee推送跳过"
         continue-on-error: true
