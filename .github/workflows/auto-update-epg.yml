@@ -14,11 +14,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false  # 新加，解决权限锁冲突
 
       - name: 同步远程最新代码
         run: |
           git fetch --all
           git reset --hard origin/master
+          git pull origin master --force  # 新加，强制拉最新，杜绝冲突
         continue-on-error: true
 
       - name: 配置Python环境
@@ -42,8 +44,10 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           
-          git add -f output/
+          # 只提交gz，不提交xml，适配你最新的脚本
+          git add -f output/*.gz
           git commit -m "✅ EPG自动更新 $(date +'%Y-%m-%d %H:%M:%S')" --allow-empty
           
-          git push -f origin HEAD:master
+          # 修复推送命令，彻底解决 cannot lock ref 报错
+          git push -f origin master
         continue-on-error: true
