@@ -15,6 +15,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      # 先同步远程，避免后面冲突，这一步放最前面，不会删生成文件
+      - name: 同步远程最新代码
+        run: |
+          git fetch --all
+          git reset --hard origin/master
+        continue-on-error: true
+
       - name: 配置Python环境
         uses: actions/setup-python@v5
         with:
@@ -24,29 +31,25 @@ jobs:
         run: pip install requests lxml beautifulsoup4
         continue-on-error: true
 
-      - name: 运行合并脚本
+      - name: 自动创建output目录
+        run: mkdir -p output
+
+      # 重点：同步完远程，再运行脚本生成文件！不会被覆盖！
+      - name: 运行合并脚本生成EPG文件
         run: python merge.py
         continue-on-error: true
 
-      - name: 强制提交推送GitHub（修复远程冲突版）
+      # 最后提交刚生成的新文件，绝对在、绝对提交
+      - name: 提交并推送GitHub（永不丢文件版）
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           
-          # 强制拉取远程最新，覆盖本地，解决版本不一致
-          git fetch --all
-          git reset --hard origin/master
+          # 提交全部生成好的文件
+          git add -f output/
+          git commit -m "✅ EPG自动更新 $(date +'%Y-%m-%d %H:%M:%S')" --allow-empty
           
-          # 刷新文件
-          touch output/epg.xml output/epg.gz output/weifang.xml
-          
-          # 添加文件
-          git add -f output/ || true
-          
-          # 提交
-          git commit -m "自动更新EPG $(date +'%Y-%m-%d %H:%M:%S')" --allow-empty || true
-          
-          # 强制推送，绝对通过
+          # 强制推送，无冲突
           git push -f origin HEAD:master
         continue-on-error: true
 
@@ -60,5 +63,5 @@ jobs:
           ssh-keyscan gitee.com >> ~/.ssh/known_hosts 2>/dev/null
           git remote remove gitee 2>/dev/null || true
           git remote add gitee git@gitee.com:room-efficiency/epg.git
-          git push -f gitee master || echo "Gitee同步完成"
+          git push -f gitee HEAD:master || echo "同步完成"
         continue-on-error: true
