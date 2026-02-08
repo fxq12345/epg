@@ -15,348 +15,6 @@
     <display-name>潍坊公共频道</display-name>
     <icon src="https://picsum.photos/seed/weifang-public/200/120"/>
   </channel>
-  <programme start="20260207070000 +0800" stop="20260207070000 +0800" channel="潍坊新闻频道">
-    <title>潍坊新闻07:20荧屏精彩汇07:30潍坊财经07:35新健康07:50好剧连连看11:00聚焦11:35直播潍坊12:35新闻朝天锅13:15重播风筝剧场15:30法治中国16:02养生堂17:17天气预报17:25说道17:50直播潍坊18:35潍坊新闻19:00转播中央台新闻联播19:35风筝剧场21:25聚焦21:45潍坊新闻22:10直播潍坊22:55新闻朝天锅23:25潍坊房产报道23:40汽车视界23:50消费第一线</title>
-  </programme>
-  <programme start="20260207070000 +0800" stop="20260207072000 +0800" channel="潍坊新闻频道">
-    <title>潍坊新闻</title>
-  </programme>
-  <programme start="20260207072000 +0800" stop="20260207073000 +0800" channel="潍坊新闻频道">
-    <title>荧屏精彩汇</title>
-  </programme>
-  <programme start="20260207073000 +0800" stop="20260207073500 +0800" channel="潍坊新闻频道">
-    <title>潍坊财经</title>
-  </programme>
-  <programme start="20260207073500 +0800" stop="20260207075000 +0800" channel="潍坊新闻频道">
-    <title>新健康</title>
-  </programme>
-  <programme start="20260207075000 +0800" stop="20260207110000 +0800" channel="潍坊新闻频道">
-    <title>好剧连连看</title>
-  </programme>
-  <programme start="20260207110000 +0800" stop="20260207113500 +0800" channel="潍坊新闻频道">
-    <title>聚焦</title>
-  </programme>
-  <programme start="20260207113500 +0800" stop="20260207123500 +0800" channel="潍坊新闻频道">
-    <title>直播潍坊</title>
-  </programme>
-  <programme start="20260207123500 +0800" stop="20260207131500 +0800" channel="潍坊新闻频道">
-    <title>新闻朝天锅</title>
-  </programme>
-  <programme start="20260207131500 +0800" stop="20260207153000 +0800" channel="潍坊新闻频道">
-    <title>重播风筝剧场</title>
-  </programme>
-  <programme start="20260207153000 +0800" stop="20260207160200 +0800" channel="潍坊新闻频道">
-    <title>法治中国</title>
-  </programme>
-  <programme start="20260207160200 +0800" stop="20260207171700 +0800" channel="潍坊新闻频道">
-    <title>养生堂</title>
-  </programme>
-  <programme start="20260207171700 +0800" stop="20260207172500 +0800" channel="潍坊新闻频道">
-    <title>天气预报</title>
-  </programme>
-  <programme start="20260207172500 +0800" stop="20260207175000 +0800" channel="潍坊新闻频道">
-    <title>说道</title>
-  </programme>
-  <programme start="20260207175000 +0800" stop="20260207183500 +0800" channel="潍坊新闻频道">
-    <title>直播潍坊</title>
-  </programme>
-  <programme start="20260207183500 +0800" stop="20260207190000 +0800" channel="潍坊新闻频道">
-    <title>潍坊新闻</title>
-  </programme>
-  <programme start="20260207190000 +0800" stop="20260207193500 +0800" channel="潍坊新闻频道">
-    <title>转播中央台新闻联播</title>
-  </programme>
-  <programme start="20260207193500 +0800" stop="20260207212500 +0800" channel="潍坊新闻频道">
-    <title>风筝剧场</title>
-  </programme>
-  <programme start="20260207212500 +0800" stop="20260207214500 +0800" channel="潍坊新闻频道">
-    <title>聚焦</title>
-  </programme>
-  <programme start="20260207214500 +0800" stop="20260207221000 +0800" channel="潍坊新闻频道">
-    <title>潍坊新闻</title>
-  </programme>
-  <programme start="20260207221000 +0800" stop="20260207225500 +0800" channel="潍坊新闻频道">
-    <title>直播潍坊</title>
-  </programme>
-  <programme start="20260207225500 +0800" stop="20260207232500 +0800" channel="潍坊新闻频道">
-    <title>新闻朝天锅</title>
-  </programme>
-  <programme start="20260207232500 +0800" stop="20260207234000 +0800" channel="潍坊新闻频道">
-    <title>潍坊房产报道</title>
-  </programme>
-  <programme start="20260207234000 +0800" stop="20260207235000 +0800" channel="潍坊新闻频道">
-    <title>汽车视界</title>
-  </programme>
-  <programme start="20260207235000 +0800" stop="20260208005000 +0800" channel="潍坊新闻频道">
-    <title>消费第一线</title>
-  </programme>
-  <programme start="20260207002000 +0800" stop="20260207002000 +0800" channel="潍坊经济生活频道">
-    <title>四季禾风00:46咱们村的文化人00:55看法01:15观点01:43电视剧场02:57人间悲喜路03:25荧屏精彩汇03:48军情解码05:31目击06:00荧屏精彩汇06:50新健康07:00消费第一线07:10新健康08:20生活剧场10:20潍坊财经10:35看法11:00咱们村的文化人11:15四季禾风11:45观点12:25电视剧场18:10四季禾风18:40咱们村的文化人18:55看法19:15观点19:45高新新闻20:00健康有约20:33潍坊财经20:48消费第一线21:00潍坊房产报道21:15法治中国21:30人间悲喜路22:05老梁故事会22:30名家论坛23:00新健康23:10汽车视界23:20天气预报</title>
-  </programme>
-  <programme start="20260207002000 +0800" stop="20260207004600 +0800" channel="潍坊经济生活频道">
-    <title>四季禾风</title>
-  </programme>
-  <programme start="20260207004600 +0800" stop="20260207005500 +0800" channel="潍坊经济生活频道">
-    <title>咱们村的文化人</title>
-  </programme>
-  <programme start="20260207005500 +0800" stop="20260207011500 +0800" channel="潍坊经济生活频道">
-    <title>看法</title>
-  </programme>
-  <programme start="20260207011500 +0800" stop="20260207014300 +0800" channel="潍坊经济生活频道">
-    <title>观点</title>
-  </programme>
-  <programme start="20260207014300 +0800" stop="20260207025700 +0800" channel="潍坊经济生活频道">
-    <title>电视剧场</title>
-  </programme>
-  <programme start="20260207025700 +0800" stop="20260207032500 +0800" channel="潍坊经济生活频道">
-    <title>人间悲喜路</title>
-  </programme>
-  <programme start="20260207032500 +0800" stop="20260207034800 +0800" channel="潍坊经济生活频道">
-    <title>荧屏精彩汇</title>
-  </programme>
-  <programme start="20260207034800 +0800" stop="20260207053100 +0800" channel="潍坊经济生活频道">
-    <title>军情解码</title>
-  </programme>
-  <programme start="20260207053100 +0800" stop="20260207060000 +0800" channel="潍坊经济生活频道">
-    <title>目击</title>
-  </programme>
-  <programme start="20260207060000 +0800" stop="20260207065000 +0800" channel="潍坊经济生活频道">
-    <title>荧屏精彩汇</title>
-  </programme>
-  <programme start="20260207065000 +0800" stop="20260207070000 +0800" channel="潍坊经济生活频道">
-    <title>新健康</title>
-  </programme>
-  <programme start="20260207070000 +0800" stop="20260207071000 +0800" channel="潍坊经济生活频道">
-    <title>消费第一线</title>
-  </programme>
-  <programme start="20260207071000 +0800" stop="20260207082000 +0800" channel="潍坊经济生活频道">
-    <title>新健康</title>
-  </programme>
-  <programme start="20260207082000 +0800" stop="20260207102000 +0800" channel="潍坊经济生活频道">
-    <title>生活剧场</title>
-  </programme>
-  <programme start="20260207102000 +0800" stop="20260207103500 +0800" channel="潍坊经济生活频道">
-    <title>潍坊财经</title>
-  </programme>
-  <programme start="20260207103500 +0800" stop="20260207110000 +0800" channel="潍坊经济生活频道">
-    <title>看法</title>
-  </programme>
-  <programme start="20260207110000 +0800" stop="20260207111500 +0800" channel="潍坊经济生活频道">
-    <title>咱们村的文化人</title>
-  </programme>
-  <programme start="20260207111500 +0800" stop="20260207114500 +0800" channel="潍坊经济生活频道">
-    <title>四季禾风</title>
-  </programme>
-  <programme start="20260207114500 +0800" stop="20260207122500 +0800" channel="潍坊经济生活频道">
-    <title>观点</title>
-  </programme>
-  <programme start="20260207122500 +0800" stop="20260207181000 +0800" channel="潍坊经济生活频道">
-    <title>电视剧场</title>
-  </programme>
-  <programme start="20260207181000 +0800" stop="20260207184000 +0800" channel="潍坊经济生活频道">
-    <title>四季禾风</title>
-  </programme>
-  <programme start="20260207184000 +0800" stop="20260207185500 +0800" channel="潍坊经济生活频道">
-    <title>咱们村的文化人</title>
-  </programme>
-  <programme start="20260207185500 +0800" stop="20260207191500 +0800" channel="潍坊经济生活频道">
-    <title>看法</title>
-  </programme>
-  <programme start="20260207191500 +0800" stop="20260207194500 +0800" channel="潍坊经济生活频道">
-    <title>观点</title>
-  </programme>
-  <programme start="20260207194500 +0800" stop="20260207200000 +0800" channel="潍坊经济生活频道">
-    <title>高新新闻</title>
-  </programme>
-  <programme start="20260207200000 +0800" stop="20260207203300 +0800" channel="潍坊经济生活频道">
-    <title>健康有约</title>
-  </programme>
-  <programme start="20260207203300 +0800" stop="20260207204800 +0800" channel="潍坊经济生活频道">
-    <title>潍坊财经</title>
-  </programme>
-  <programme start="20260207204800 +0800" stop="20260207210000 +0800" channel="潍坊经济生活频道">
-    <title>消费第一线</title>
-  </programme>
-  <programme start="20260207210000 +0800" stop="20260207211500 +0800" channel="潍坊经济生活频道">
-    <title>潍坊房产报道</title>
-  </programme>
-  <programme start="20260207211500 +0800" stop="20260207213000 +0800" channel="潍坊经济生活频道">
-    <title>法治中国</title>
-  </programme>
-  <programme start="20260207213000 +0800" stop="20260207220500 +0800" channel="潍坊经济生活频道">
-    <title>人间悲喜路</title>
-  </programme>
-  <programme start="20260207220500 +0800" stop="20260207223000 +0800" channel="潍坊经济生活频道">
-    <title>老梁故事会</title>
-  </programme>
-  <programme start="20260207223000 +0800" stop="20260207230000 +0800" channel="潍坊经济生活频道">
-    <title>名家论坛</title>
-  </programme>
-  <programme start="20260207230000 +0800" stop="20260207231000 +0800" channel="潍坊经济生活频道">
-    <title>新健康</title>
-  </programme>
-  <programme start="20260207231000 +0800" stop="20260207232000 +0800" channel="潍坊经济生活频道">
-    <title>汽车视界</title>
-  </programme>
-  <programme start="20260207232000 +0800" stop="20260208002000 +0800" channel="潍坊经济生活频道">
-    <title>天气预报</title>
-  </programme>
-  <programme start="20260207014000 +0800" stop="20260207014000 +0800" channel="潍坊科教频道">
-    <title>名家论坛02:20电视剧05:03老梁故事汇05:30军情解码06:18人间悲喜路06:48法治中国08:00真相08:55电视剧12:00荧屏精彩汇12:35潍坊财经12:45新健康13:10法治中国13:50超级大乐透14:20电视剧16:24红色传奇16:50野生动物宝宝17:30卡卡历险记18:55说道19:20直播潍坊20:02看法20:25聚焦21:02潍坊教育21:17新闻朝天锅21:50观点22:15四季和风22:47咱们村的文化人23:03法治中国23:40央广购物</title>
-  </programme>
-  <programme start="20260207014000 +0800" stop="20260207022000 +0800" channel="潍坊科教频道">
-    <title>名家论坛</title>
-  </programme>
-  <programme start="20260207022000 +0800" stop="20260207050300 +0800" channel="潍坊科教频道">
-    <title>电视剧</title>
-  </programme>
-  <programme start="20260207050300 +0800" stop="20260207053000 +0800" channel="潍坊科教频道">
-    <title>老梁故事汇</title>
-  </programme>
-  <programme start="20260207053000 +0800" stop="20260207061800 +0800" channel="潍坊科教频道">
-    <title>军情解码</title>
-  </programme>
-  <programme start="20260207061800 +0800" stop="20260207064800 +0800" channel="潍坊科教频道">
-    <title>人间悲喜路</title>
-  </programme>
-  <programme start="20260207064800 +0800" stop="20260207080000 +0800" channel="潍坊科教频道">
-    <title>法治中国</title>
-  </programme>
-  <programme start="20260207080000 +0800" stop="20260207085500 +0800" channel="潍坊科教频道">
-    <title>真相</title>
-  </programme>
-  <programme start="20260207085500 +0800" stop="20260207120000 +0800" channel="潍坊科教频道">
-    <title>电视剧</title>
-  </programme>
-  <programme start="20260207120000 +0800" stop="20260207123500 +0800" channel="潍坊科教频道">
-    <title>荧屏精彩汇</title>
-  </programme>
-  <programme start="20260207123500 +0800" stop="20260207124500 +0800" channel="潍坊科教频道">
-    <title>潍坊财经</title>
-  </programme>
-  <programme start="20260207124500 +0800" stop="20260207131000 +0800" channel="潍坊科教频道">
-    <title>新健康</title>
-  </programme>
-  <programme start="20260207131000 +0800" stop="20260207135000 +0800" channel="潍坊科教频道">
-    <title>法治中国</title>
-  </programme>
-  <programme start="20260207135000 +0800" stop="20260207142000 +0800" channel="潍坊科教频道">
-    <title>超级大乐透</title>
-  </programme>
-  <programme start="20260207142000 +0800" stop="20260207162400 +0800" channel="潍坊科教频道">
-    <title>电视剧</title>
-  </programme>
-  <programme start="20260207162400 +0800" stop="20260207165000 +0800" channel="潍坊科教频道">
-    <title>红色传奇</title>
-  </programme>
-  <programme start="20260207165000 +0800" stop="20260207173000 +0800" channel="潍坊科教频道">
-    <title>野生动物宝宝</title>
-  </programme>
-  <programme start="20260207173000 +0800" stop="20260207185500 +0800" channel="潍坊科教频道">
-    <title>卡卡历险记</title>
-  </programme>
-  <programme start="20260207185500 +0800" stop="20260207192000 +0800" channel="潍坊科教频道">
-    <title>说道</title>
-  </programme>
-  <programme start="20260207192000 +0800" stop="20260207200200 +0800" channel="潍坊科教频道">
-    <title>直播潍坊</title>
-  </programme>
-  <programme start="20260207200200 +0800" stop="20260207202500 +0800" channel="潍坊科教频道">
-    <title>看法</title>
-  </programme>
-  <programme start="20260207202500 +0800" stop="20260207210200 +0800" channel="潍坊科教频道">
-    <title>聚焦</title>
-  </programme>
-  <programme start="20260207210200 +0800" stop="20260207211700 +0800" channel="潍坊科教频道">
-    <title>潍坊教育</title>
-  </programme>
-  <programme start="20260207211700 +0800" stop="20260207215000 +0800" channel="潍坊科教频道">
-    <title>新闻朝天锅</title>
-  </programme>
-  <programme start="20260207215000 +0800" stop="20260207221500 +0800" channel="潍坊科教频道">
-    <title>观点</title>
-  </programme>
-  <programme start="20260207221500 +0800" stop="20260207224700 +0800" channel="潍坊科教频道">
-    <title>四季和风</title>
-  </programme>
-  <programme start="20260207224700 +0800" stop="20260207230300 +0800" channel="潍坊科教频道">
-    <title>咱们村的文化人</title>
-  </programme>
-  <programme start="20260207230300 +0800" stop="20260207234000 +0800" channel="潍坊科教频道">
-    <title>法治中国</title>
-  </programme>
-  <programme start="20260207234000 +0800" stop="20260208004000 +0800" channel="潍坊科教频道">
-    <title>央广购物</title>
-  </programme>
-  <programme start="20260207003500 +0800" stop="20260207003500 +0800" channel="潍坊公共频道">
-    <title>名家论坛00:55重播十笏园剧场03:33重播看了再看05:30公共金曲07:10消费第一线07:20新健康07:30好剧回放12:00目击12:50潍坊财经13:00荧屏精彩汇13:50法治中国14:00潍坊房产报道14:20汽车视界14:30重播十笏园剧场17:40消费第一线18:00新健康18:05潍坊房产报道18:20汽车视界18:43十笏园剧场19:35十笏园剧场21:30看了再看剧场23:13新健康</title>
-  </programme>
-  <programme start="20260207003500 +0800" stop="20260207005500 +0800" channel="潍坊公共频道">
-    <title>名家论坛</title>
-  </programme>
-  <programme start="20260207005500 +0800" stop="20260207033300 +0800" channel="潍坊公共频道">
-    <title>重播十笏园剧场</title>
-  </programme>
-  <programme start="20260207033300 +0800" stop="20260207053000 +0800" channel="潍坊公共频道">
-    <title>重播看了再看</title>
-  </programme>
-  <programme start="20260207053000 +0800" stop="20260207071000 +0800" channel="潍坊公共频道">
-    <title>公共金曲</title>
-  </programme>
-  <programme start="20260207071000 +0800" stop="20260207072000 +0800" channel="潍坊公共频道">
-    <title>消费第一线</title>
-  </programme>
-  <programme start="20260207072000 +0800" stop="20260207073000 +0800" channel="潍坊公共频道">
-    <title>新健康</title>
-  </programme>
-  <programme start="20260207073000 +0800" stop="20260207120000 +0800" channel="潍坊公共频道">
-    <title>好剧回放</title>
-  </programme>
-  <programme start="20260207120000 +0800" stop="20260207125000 +0800" channel="潍坊公共频道">
-    <title>目击</title>
-  </programme>
-  <programme start="20260207125000 +0800" stop="20260207130000 +0800" channel="潍坊公共频道">
-    <title>潍坊财经</title>
-  </programme>
-  <programme start="20260207130000 +0800" stop="20260207135000 +0800" channel="潍坊公共频道">
-    <title>荧屏精彩汇</title>
-  </programme>
-  <programme start="20260207135000 +0800" stop="20260207140000 +0800" channel="潍坊公共频道">
-    <title>法治中国</title>
-  </programme>
-  <programme start="20260207140000 +0800" stop="20260207142000 +0800" channel="潍坊公共频道">
-    <title>潍坊房产报道</title>
-  </programme>
-  <programme start="20260207142000 +0800" stop="20260207143000 +0800" channel="潍坊公共频道">
-    <title>汽车视界</title>
-  </programme>
-  <programme start="20260207143000 +0800" stop="20260207174000 +0800" channel="潍坊公共频道">
-    <title>重播十笏园剧场</title>
-  </programme>
-  <programme start="20260207174000 +0800" stop="20260207180000 +0800" channel="潍坊公共频道">
-    <title>消费第一线</title>
-  </programme>
-  <programme start="20260207180000 +0800" stop="20260207180500 +0800" channel="潍坊公共频道">
-    <title>新健康</title>
-  </programme>
-  <programme start="20260207180500 +0800" stop="20260207182000 +0800" channel="潍坊公共频道">
-    <title>潍坊房产报道</title>
-  </programme>
-  <programme start="20260207182000 +0800" stop="20260207184300 +0800" channel="潍坊公共频道">
-    <title>汽车视界</title>
-  </programme>
-  <programme start="20260207184300 +0800" stop="20260207193500 +0800" channel="潍坊公共频道">
-    <title>十笏园剧场</title>
-  </programme>
-  <programme start="20260207193500 +0800" stop="20260207213000 +0800" channel="潍坊公共频道">
-    <title>十笏园剧场</title>
-  </programme>
-  <programme start="20260207213000 +0800" stop="20260207231300 +0800" channel="潍坊公共频道">
-    <title>看了再看剧场</title>
-  </programme>
-  <programme start="20260207231300 +0800" stop="20260208001300 +0800" channel="潍坊公共频道">
-    <title>新健康</title>
-  </programme>
   <programme start="20260208070000 +0800" stop="20260208070000 +0800" channel="潍坊新闻频道">
     <title>潍坊新闻07:20荧屏精彩汇07:30潍坊财经07:35新健康07:50好剧连连看11:00聚焦11:35直播潍坊12:35新闻朝天锅13:15重播风筝剧场15:30法治中国16:02养生堂17:17天气预报17:25说道17:50直播潍坊18:35潍坊新闻19:00转播中央台新闻联播19:35风筝剧场21:25聚焦21:45潍坊新闻22:10直播潍坊22:55新闻朝天锅23:25潍坊房产报道23:40汽车视界23:50消费第一线</title>
   </programme>
@@ -2407,6 +2065,348 @@
     <title>看了再看剧场</title>
   </programme>
   <programme start="20260213231300 +0800" stop="20260214001300 +0800" channel="潍坊公共频道">
+    <title>新健康</title>
+  </programme>
+  <programme start="20260214070000 +0800" stop="20260214070000 +0800" channel="潍坊新闻频道">
+    <title>潍坊新闻07:20荧屏精彩汇07:30潍坊财经07:35新健康07:50好剧连连看11:00聚焦11:35直播潍坊12:35新闻朝天锅13:15重播风筝剧场15:30法治中国16:02养生堂17:17天气预报17:25说道17:50直播潍坊18:35潍坊新闻19:00转播中央台新闻联播19:35风筝剧场21:25聚焦21:45潍坊新闻22:10直播潍坊22:55新闻朝天锅23:25潍坊房产报道23:40汽车视界23:50消费第一线</title>
+  </programme>
+  <programme start="20260214070000 +0800" stop="20260214072000 +0800" channel="潍坊新闻频道">
+    <title>潍坊新闻</title>
+  </programme>
+  <programme start="20260214072000 +0800" stop="20260214073000 +0800" channel="潍坊新闻频道">
+    <title>荧屏精彩汇</title>
+  </programme>
+  <programme start="20260214073000 +0800" stop="20260214073500 +0800" channel="潍坊新闻频道">
+    <title>潍坊财经</title>
+  </programme>
+  <programme start="20260214073500 +0800" stop="20260214075000 +0800" channel="潍坊新闻频道">
+    <title>新健康</title>
+  </programme>
+  <programme start="20260214075000 +0800" stop="20260214110000 +0800" channel="潍坊新闻频道">
+    <title>好剧连连看</title>
+  </programme>
+  <programme start="20260214110000 +0800" stop="20260214113500 +0800" channel="潍坊新闻频道">
+    <title>聚焦</title>
+  </programme>
+  <programme start="20260214113500 +0800" stop="20260214123500 +0800" channel="潍坊新闻频道">
+    <title>直播潍坊</title>
+  </programme>
+  <programme start="20260214123500 +0800" stop="20260214131500 +0800" channel="潍坊新闻频道">
+    <title>新闻朝天锅</title>
+  </programme>
+  <programme start="20260214131500 +0800" stop="20260214153000 +0800" channel="潍坊新闻频道">
+    <title>重播风筝剧场</title>
+  </programme>
+  <programme start="20260214153000 +0800" stop="20260214160200 +0800" channel="潍坊新闻频道">
+    <title>法治中国</title>
+  </programme>
+  <programme start="20260214160200 +0800" stop="20260214171700 +0800" channel="潍坊新闻频道">
+    <title>养生堂</title>
+  </programme>
+  <programme start="20260214171700 +0800" stop="20260214172500 +0800" channel="潍坊新闻频道">
+    <title>天气预报</title>
+  </programme>
+  <programme start="20260214172500 +0800" stop="20260214175000 +0800" channel="潍坊新闻频道">
+    <title>说道</title>
+  </programme>
+  <programme start="20260214175000 +0800" stop="20260214183500 +0800" channel="潍坊新闻频道">
+    <title>直播潍坊</title>
+  </programme>
+  <programme start="20260214183500 +0800" stop="20260214190000 +0800" channel="潍坊新闻频道">
+    <title>潍坊新闻</title>
+  </programme>
+  <programme start="20260214190000 +0800" stop="20260214193500 +0800" channel="潍坊新闻频道">
+    <title>转播中央台新闻联播</title>
+  </programme>
+  <programme start="20260214193500 +0800" stop="20260214212500 +0800" channel="潍坊新闻频道">
+    <title>风筝剧场</title>
+  </programme>
+  <programme start="20260214212500 +0800" stop="20260214214500 +0800" channel="潍坊新闻频道">
+    <title>聚焦</title>
+  </programme>
+  <programme start="20260214214500 +0800" stop="20260214221000 +0800" channel="潍坊新闻频道">
+    <title>潍坊新闻</title>
+  </programme>
+  <programme start="20260214221000 +0800" stop="20260214225500 +0800" channel="潍坊新闻频道">
+    <title>直播潍坊</title>
+  </programme>
+  <programme start="20260214225500 +0800" stop="20260214232500 +0800" channel="潍坊新闻频道">
+    <title>新闻朝天锅</title>
+  </programme>
+  <programme start="20260214232500 +0800" stop="20260214234000 +0800" channel="潍坊新闻频道">
+    <title>潍坊房产报道</title>
+  </programme>
+  <programme start="20260214234000 +0800" stop="20260214235000 +0800" channel="潍坊新闻频道">
+    <title>汽车视界</title>
+  </programme>
+  <programme start="20260214235000 +0800" stop="20260215005000 +0800" channel="潍坊新闻频道">
+    <title>消费第一线</title>
+  </programme>
+  <programme start="20260214002000 +0800" stop="20260214002000 +0800" channel="潍坊经济生活频道">
+    <title>四季禾风00:46咱们村的文化人00:55看法01:15观点01:43电视剧场02:57人间悲喜路03:25荧屏精彩汇03:48军情解码05:31目击06:00荧屏精彩汇06:50新健康07:00消费第一线07:10新健康08:20生活剧场10:20潍坊财经10:35看法11:00咱们村的文化人11:15四季禾风11:45观点12:25电视剧场18:10四季禾风18:40咱们村的文化人18:55看法19:15观点19:45高新新闻20:00健康有约20:33潍坊财经20:48消费第一线21:00潍坊房产报道21:15法治中国21:30人间悲喜路22:05老梁故事会22:30名家论坛23:00新健康23:10汽车视界23:20天气预报</title>
+  </programme>
+  <programme start="20260214002000 +0800" stop="20260214004600 +0800" channel="潍坊经济生活频道">
+    <title>四季禾风</title>
+  </programme>
+  <programme start="20260214004600 +0800" stop="20260214005500 +0800" channel="潍坊经济生活频道">
+    <title>咱们村的文化人</title>
+  </programme>
+  <programme start="20260214005500 +0800" stop="20260214011500 +0800" channel="潍坊经济生活频道">
+    <title>看法</title>
+  </programme>
+  <programme start="20260214011500 +0800" stop="20260214014300 +0800" channel="潍坊经济生活频道">
+    <title>观点</title>
+  </programme>
+  <programme start="20260214014300 +0800" stop="20260214025700 +0800" channel="潍坊经济生活频道">
+    <title>电视剧场</title>
+  </programme>
+  <programme start="20260214025700 +0800" stop="20260214032500 +0800" channel="潍坊经济生活频道">
+    <title>人间悲喜路</title>
+  </programme>
+  <programme start="20260214032500 +0800" stop="20260214034800 +0800" channel="潍坊经济生活频道">
+    <title>荧屏精彩汇</title>
+  </programme>
+  <programme start="20260214034800 +0800" stop="20260214053100 +0800" channel="潍坊经济生活频道">
+    <title>军情解码</title>
+  </programme>
+  <programme start="20260214053100 +0800" stop="20260214060000 +0800" channel="潍坊经济生活频道">
+    <title>目击</title>
+  </programme>
+  <programme start="20260214060000 +0800" stop="20260214065000 +0800" channel="潍坊经济生活频道">
+    <title>荧屏精彩汇</title>
+  </programme>
+  <programme start="20260214065000 +0800" stop="20260214070000 +0800" channel="潍坊经济生活频道">
+    <title>新健康</title>
+  </programme>
+  <programme start="20260214070000 +0800" stop="20260214071000 +0800" channel="潍坊经济生活频道">
+    <title>消费第一线</title>
+  </programme>
+  <programme start="20260214071000 +0800" stop="20260214082000 +0800" channel="潍坊经济生活频道">
+    <title>新健康</title>
+  </programme>
+  <programme start="20260214082000 +0800" stop="20260214102000 +0800" channel="潍坊经济生活频道">
+    <title>生活剧场</title>
+  </programme>
+  <programme start="20260214102000 +0800" stop="20260214103500 +0800" channel="潍坊经济生活频道">
+    <title>潍坊财经</title>
+  </programme>
+  <programme start="20260214103500 +0800" stop="20260214110000 +0800" channel="潍坊经济生活频道">
+    <title>看法</title>
+  </programme>
+  <programme start="20260214110000 +0800" stop="20260214111500 +0800" channel="潍坊经济生活频道">
+    <title>咱们村的文化人</title>
+  </programme>
+  <programme start="20260214111500 +0800" stop="20260214114500 +0800" channel="潍坊经济生活频道">
+    <title>四季禾风</title>
+  </programme>
+  <programme start="20260214114500 +0800" stop="20260214122500 +0800" channel="潍坊经济生活频道">
+    <title>观点</title>
+  </programme>
+  <programme start="20260214122500 +0800" stop="20260214181000 +0800" channel="潍坊经济生活频道">
+    <title>电视剧场</title>
+  </programme>
+  <programme start="20260214181000 +0800" stop="20260214184000 +0800" channel="潍坊经济生活频道">
+    <title>四季禾风</title>
+  </programme>
+  <programme start="20260214184000 +0800" stop="20260214185500 +0800" channel="潍坊经济生活频道">
+    <title>咱们村的文化人</title>
+  </programme>
+  <programme start="20260214185500 +0800" stop="20260214191500 +0800" channel="潍坊经济生活频道">
+    <title>看法</title>
+  </programme>
+  <programme start="20260214191500 +0800" stop="20260214194500 +0800" channel="潍坊经济生活频道">
+    <title>观点</title>
+  </programme>
+  <programme start="20260214194500 +0800" stop="20260214200000 +0800" channel="潍坊经济生活频道">
+    <title>高新新闻</title>
+  </programme>
+  <programme start="20260214200000 +0800" stop="20260214203300 +0800" channel="潍坊经济生活频道">
+    <title>健康有约</title>
+  </programme>
+  <programme start="20260214203300 +0800" stop="20260214204800 +0800" channel="潍坊经济生活频道">
+    <title>潍坊财经</title>
+  </programme>
+  <programme start="20260214204800 +0800" stop="20260214210000 +0800" channel="潍坊经济生活频道">
+    <title>消费第一线</title>
+  </programme>
+  <programme start="20260214210000 +0800" stop="20260214211500 +0800" channel="潍坊经济生活频道">
+    <title>潍坊房产报道</title>
+  </programme>
+  <programme start="20260214211500 +0800" stop="20260214213000 +0800" channel="潍坊经济生活频道">
+    <title>法治中国</title>
+  </programme>
+  <programme start="20260214213000 +0800" stop="20260214220500 +0800" channel="潍坊经济生活频道">
+    <title>人间悲喜路</title>
+  </programme>
+  <programme start="20260214220500 +0800" stop="20260214223000 +0800" channel="潍坊经济生活频道">
+    <title>老梁故事会</title>
+  </programme>
+  <programme start="20260214223000 +0800" stop="20260214230000 +0800" channel="潍坊经济生活频道">
+    <title>名家论坛</title>
+  </programme>
+  <programme start="20260214230000 +0800" stop="20260214231000 +0800" channel="潍坊经济生活频道">
+    <title>新健康</title>
+  </programme>
+  <programme start="20260214231000 +0800" stop="20260214232000 +0800" channel="潍坊经济生活频道">
+    <title>汽车视界</title>
+  </programme>
+  <programme start="20260214232000 +0800" stop="20260215002000 +0800" channel="潍坊经济生活频道">
+    <title>天气预报</title>
+  </programme>
+  <programme start="20260214014000 +0800" stop="20260214014000 +0800" channel="潍坊科教频道">
+    <title>名家论坛02:20电视剧05:03老梁故事汇05:30军情解码06:18人间悲喜路06:48法治中国08:00真相08:55电视剧12:00荧屏精彩汇12:35潍坊财经12:45新健康13:10法治中国13:50超级大乐透14:20电视剧16:24红色传奇16:50野生动物宝宝17:30卡卡历险记18:55说道19:20直播潍坊20:02看法20:25聚焦21:02潍坊教育21:17新闻朝天锅21:50观点22:15四季和风22:47咱们村的文化人23:03法治中国23:40央广购物</title>
+  </programme>
+  <programme start="20260214014000 +0800" stop="20260214022000 +0800" channel="潍坊科教频道">
+    <title>名家论坛</title>
+  </programme>
+  <programme start="20260214022000 +0800" stop="20260214050300 +0800" channel="潍坊科教频道">
+    <title>电视剧</title>
+  </programme>
+  <programme start="20260214050300 +0800" stop="20260214053000 +0800" channel="潍坊科教频道">
+    <title>老梁故事汇</title>
+  </programme>
+  <programme start="20260214053000 +0800" stop="20260214061800 +0800" channel="潍坊科教频道">
+    <title>军情解码</title>
+  </programme>
+  <programme start="20260214061800 +0800" stop="20260214064800 +0800" channel="潍坊科教频道">
+    <title>人间悲喜路</title>
+  </programme>
+  <programme start="20260214064800 +0800" stop="20260214080000 +0800" channel="潍坊科教频道">
+    <title>法治中国</title>
+  </programme>
+  <programme start="20260214080000 +0800" stop="20260214085500 +0800" channel="潍坊科教频道">
+    <title>真相</title>
+  </programme>
+  <programme start="20260214085500 +0800" stop="20260214120000 +0800" channel="潍坊科教频道">
+    <title>电视剧</title>
+  </programme>
+  <programme start="20260214120000 +0800" stop="20260214123500 +0800" channel="潍坊科教频道">
+    <title>荧屏精彩汇</title>
+  </programme>
+  <programme start="20260214123500 +0800" stop="20260214124500 +0800" channel="潍坊科教频道">
+    <title>潍坊财经</title>
+  </programme>
+  <programme start="20260214124500 +0800" stop="20260214131000 +0800" channel="潍坊科教频道">
+    <title>新健康</title>
+  </programme>
+  <programme start="20260214131000 +0800" stop="20260214135000 +0800" channel="潍坊科教频道">
+    <title>法治中国</title>
+  </programme>
+  <programme start="20260214135000 +0800" stop="20260214142000 +0800" channel="潍坊科教频道">
+    <title>超级大乐透</title>
+  </programme>
+  <programme start="20260214142000 +0800" stop="20260214162400 +0800" channel="潍坊科教频道">
+    <title>电视剧</title>
+  </programme>
+  <programme start="20260214162400 +0800" stop="20260214165000 +0800" channel="潍坊科教频道">
+    <title>红色传奇</title>
+  </programme>
+  <programme start="20260214165000 +0800" stop="20260214173000 +0800" channel="潍坊科教频道">
+    <title>野生动物宝宝</title>
+  </programme>
+  <programme start="20260214173000 +0800" stop="20260214185500 +0800" channel="潍坊科教频道">
+    <title>卡卡历险记</title>
+  </programme>
+  <programme start="20260214185500 +0800" stop="20260214192000 +0800" channel="潍坊科教频道">
+    <title>说道</title>
+  </programme>
+  <programme start="20260214192000 +0800" stop="20260214200200 +0800" channel="潍坊科教频道">
+    <title>直播潍坊</title>
+  </programme>
+  <programme start="20260214200200 +0800" stop="20260214202500 +0800" channel="潍坊科教频道">
+    <title>看法</title>
+  </programme>
+  <programme start="20260214202500 +0800" stop="20260214210200 +0800" channel="潍坊科教频道">
+    <title>聚焦</title>
+  </programme>
+  <programme start="20260214210200 +0800" stop="20260214211700 +0800" channel="潍坊科教频道">
+    <title>潍坊教育</title>
+  </programme>
+  <programme start="20260214211700 +0800" stop="20260214215000 +0800" channel="潍坊科教频道">
+    <title>新闻朝天锅</title>
+  </programme>
+  <programme start="20260214215000 +0800" stop="20260214221500 +0800" channel="潍坊科教频道">
+    <title>观点</title>
+  </programme>
+  <programme start="20260214221500 +0800" stop="20260214224700 +0800" channel="潍坊科教频道">
+    <title>四季和风</title>
+  </programme>
+  <programme start="20260214224700 +0800" stop="20260214230300 +0800" channel="潍坊科教频道">
+    <title>咱们村的文化人</title>
+  </programme>
+  <programme start="20260214230300 +0800" stop="20260214234000 +0800" channel="潍坊科教频道">
+    <title>法治中国</title>
+  </programme>
+  <programme start="20260214234000 +0800" stop="20260215004000 +0800" channel="潍坊科教频道">
+    <title>央广购物</title>
+  </programme>
+  <programme start="20260214003500 +0800" stop="20260214003500 +0800" channel="潍坊公共频道">
+    <title>名家论坛00:55重播十笏园剧场03:33重播看了再看05:30公共金曲07:10消费第一线07:20新健康07:30好剧回放12:00目击12:50潍坊财经13:00荧屏精彩汇13:50法治中国14:00潍坊房产报道14:20汽车视界14:30重播十笏园剧场17:40消费第一线18:00新健康18:05潍坊房产报道18:20汽车视界18:43十笏园剧场19:35十笏园剧场21:30看了再看剧场23:13新健康</title>
+  </programme>
+  <programme start="20260214003500 +0800" stop="20260214005500 +0800" channel="潍坊公共频道">
+    <title>名家论坛</title>
+  </programme>
+  <programme start="20260214005500 +0800" stop="20260214033300 +0800" channel="潍坊公共频道">
+    <title>重播十笏园剧场</title>
+  </programme>
+  <programme start="20260214033300 +0800" stop="20260214053000 +0800" channel="潍坊公共频道">
+    <title>重播看了再看</title>
+  </programme>
+  <programme start="20260214053000 +0800" stop="20260214071000 +0800" channel="潍坊公共频道">
+    <title>公共金曲</title>
+  </programme>
+  <programme start="20260214071000 +0800" stop="20260214072000 +0800" channel="潍坊公共频道">
+    <title>消费第一线</title>
+  </programme>
+  <programme start="20260214072000 +0800" stop="20260214073000 +0800" channel="潍坊公共频道">
+    <title>新健康</title>
+  </programme>
+  <programme start="20260214073000 +0800" stop="20260214120000 +0800" channel="潍坊公共频道">
+    <title>好剧回放</title>
+  </programme>
+  <programme start="20260214120000 +0800" stop="20260214125000 +0800" channel="潍坊公共频道">
+    <title>目击</title>
+  </programme>
+  <programme start="20260214125000 +0800" stop="20260214130000 +0800" channel="潍坊公共频道">
+    <title>潍坊财经</title>
+  </programme>
+  <programme start="20260214130000 +0800" stop="20260214135000 +0800" channel="潍坊公共频道">
+    <title>荧屏精彩汇</title>
+  </programme>
+  <programme start="20260214135000 +0800" stop="20260214140000 +0800" channel="潍坊公共频道">
+    <title>法治中国</title>
+  </programme>
+  <programme start="20260214140000 +0800" stop="20260214142000 +0800" channel="潍坊公共频道">
+    <title>潍坊房产报道</title>
+  </programme>
+  <programme start="20260214142000 +0800" stop="20260214143000 +0800" channel="潍坊公共频道">
+    <title>汽车视界</title>
+  </programme>
+  <programme start="20260214143000 +0800" stop="20260214174000 +0800" channel="潍坊公共频道">
+    <title>重播十笏园剧场</title>
+  </programme>
+  <programme start="20260214174000 +0800" stop="20260214180000 +0800" channel="潍坊公共频道">
+    <title>消费第一线</title>
+  </programme>
+  <programme start="20260214180000 +0800" stop="20260214180500 +0800" channel="潍坊公共频道">
+    <title>新健康</title>
+  </programme>
+  <programme start="20260214180500 +0800" stop="20260214182000 +0800" channel="潍坊公共频道">
+    <title>潍坊房产报道</title>
+  </programme>
+  <programme start="20260214182000 +0800" stop="20260214184300 +0800" channel="潍坊公共频道">
+    <title>汽车视界</title>
+  </programme>
+  <programme start="20260214184300 +0800" stop="20260214193500 +0800" channel="潍坊公共频道">
+    <title>十笏园剧场</title>
+  </programme>
+  <programme start="20260214193500 +0800" stop="20260214213000 +0800" channel="潍坊公共频道">
+    <title>十笏园剧场</title>
+  </programme>
+  <programme start="20260214213000 +0800" stop="20260214231300 +0800" channel="潍坊公共频道">
+    <title>看了再看剧场</title>
+  </programme>
+  <programme start="20260214231300 +0800" stop="20260215001300 +0800" channel="潍坊公共频道">
     <title>新健康</title>
   </programme>
 </tv>
