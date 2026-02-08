@@ -16,7 +16,7 @@ signal.alarm(600)
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 潍坊四个频道（新增图标链接，酷9直接解析）
+# 潍坊四个频道（图标不变）
 WEIFANG_CHANNELS = [
     (
         "潍坊新闻频道", 
@@ -39,15 +39,21 @@ WEIFANG_CHANNELS = [
         "https://picsum.photos/seed/weifang-public/200/120"
     )
 ]
-WEEK_DAY = ["w1", "w2", "w3", "w4", "w5", "w6", "w7"]
+
+# ====================== 核心修复：网站真实 7 天后缀 ======================
+WEEK_DAY = ["w0", "w1", "w2", "w3", "w4", "w5", "w6"]
 MAX_RETRY = 2
 
-# ====================== 潍坊单频道单天抓取（带重试+精准时间） ======================
+# ====================== 潍坊单频道单天抓取 ======================
 def crawl_weifang_single(ch_name, base_url, day_str, current_day):
     for attempt in range(1, MAX_RETRY + 1):
         try:
             url = f"{base_url}/{day_str}"
-            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+            # 加请求头防屏蔽
+            resp = requests.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Linux; Android 12; Mobile) AppleWebKit/537.36",
+                "Referer": "https://www.bing.com/"
+            }, timeout=8)
             resp.encoding = "utf-8"
             soup = BeautifulSoup(resp.text, "html.parser")
             
@@ -60,9 +66,15 @@ def crawl_weifang_single(ch_name, base_url, day_str, current_day):
                 time_str, title = match.groups()
                 if len(title) < 2 or "广告" in title:
                     continue
-                hh, mm = time_str.split(":")
-                prog_time = datetime.combine(current_day, datetime.min.time().replace(hour=int(hh), minute=int(mm)))
-                program_list.append((prog_time, title))
+                try:
+                    hh, mm = time_str.split(":")
+                    prog_time = datetime.combine(current_day, datetime.min.time().replace(hour=int(hh), minute=int(mm)))
+                    program_list.append((prog_time, title))
+                except:
+                    continue
+
+            # 按时间排序（关键修复）
+            program_list = sorted(program_list, key=lambda x: x[0])
             
             precise_programs = []
             for i in range(len(program_list)):
@@ -82,7 +94,7 @@ def crawl_weifang_single(ch_name, base_url, day_str, current_day):
             continue
     return []
 
-# ====================== 潍坊整体抓取：仅输出 weifang.gz ======================
+# ====================== 潍坊抓取：7 天 weifang.gz ======================
 def crawl_weifang():
     try:
         root = etree.Element("tv")
@@ -92,7 +104,9 @@ def crawl_weifang():
             dn.text = ch_name
             icon = etree.SubElement(ch, "icon", src=icon_url)
 
-        today = datetime.now()
+        # 今天起连续 7 天（0~6）
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        
         for day_idx in range(7):
             current_day = today + timedelta(days=day_idx)
             day_str = WEEK_DAY[day_idx]
@@ -103,25 +117,25 @@ def crawl_weifang():
                     t = etree.SubElement(prog, "title")
                     t.text = title
 
-        # 仅生成 gz，不生成 xml
         wf_path = os.path.join(OUTPUT_DIR, "weifang.gz")
         xml_content = etree.tostring(root, encoding="utf-8", pretty_print=True)
         with gzip.open(wf_path, "wb") as f:
             f.write(xml_content)
         return wf_path
     except:
-        # 失败也写入空gz
         wf_path = os.path.join(OUTPUT_DIR, "weifang.gz")
         empty_xml = b'<?xml version="1.0" encoding="utf-8"?>\n<tv></tv>'
         with gzip.open(wf_path, "wb") as f:
             f.write(empty_xml)
         return wf_path
 
-# ====================== 单源抓取 + 失败重试 ======================
+# ====================== 单源抓取重试 ======================
 def fetch_with_retry(u, max_retry=MAX_RETRY):
     for attempt in range(1, max_retry + 1):
         try:
-            r = requests.get(u, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            r = requests.get(u, timeout=10, headers={
+                "User-Agent": "Mozilla/5.0 (Linux; Android 12; Mobile) AppleWebKit/537.36"
+            })
             if r.status_code not in (200, 206):
                 time.sleep(1)
                 continue
@@ -142,7 +156,7 @@ def fetch_with_retry(u, max_retry=MAX_RETRY):
             continue
     return (False, None, 0, 0, max_retry)
 
-# ====================== 合并主逻辑：仅输出 epg.gz ======================
+# ====================== 合并输出 epg.gz ======================
 def merge_all(weifang_gz_file):
     all_channels = []
     all_programs = []
@@ -158,7 +172,7 @@ def merge_all(weifang_gz_file):
         urls = [l.strip() for l in f if l.strip() and l.startswith("http")]
 
     print("=" * 60)
-    print("EPG 源抓取统计（失败自动重试）")
+    print("EPG 抓取合并（7天完整版）")
     print("=" * 60)
 
     with ThreadPoolExecutor(max_workers=6) as executor:
@@ -181,13 +195,13 @@ def merge_all(weifang_gz_file):
                 fail_cnt += 1
 
     if fail_cnt > 0:
-        print(f"❌ 共 {fail_cnt} 个源经{MAX_RETRY}次重试后仍失败，已跳过")
+        print(f"❌ 共 {fail_cnt} 个源失败，已跳过")
 
     print("=" * 60)
-    print(f"汇总：成功 {success_cnt} 个 | 失败 {fail_cnt} 个 | 总频道 {total_ch} | 总节目 {total_pg}")
+    print(f"汇总：成功 {success_cnt} | 失败 {fail_cnt} | 总频道 {total_ch} | 总节目 {total_pg}")
     print("=" * 60)
 
-    # ====================== 读取潍坊 gz 文件合并 ======================
+    # 合并潍坊7天数据
     try:
         with gzip.open(weifang_gz_file, "rb") as f:
             wf_content = f.read().decode("utf-8")
@@ -196,18 +210,18 @@ def merge_all(weifang_gz_file):
             wf_pg = len(wf_tree.xpath("//programme"))
 
         if wf_ch > 0 and wf_pg > 0:
-            print(f"📺 潍坊本地源：频道 {wf_ch} | 节目 {wf_pg}（时间精准匹配+酷9图标）")
+            print(f"📺 潍坊本地源(7天)：频道 {wf_ch} | 节目 {wf_pg}")
             for node in wf_tree:
                 if node.tag == "channel":
                     all_channels.append(node)
                 elif node.tag == "programme":
                     all_programs.append(node)
         else:
-            print("⚠️ 潍坊本地源抓取失败，已跳过")
+            print("⚠️ 潍坊源无数据，已跳过")
     except:
-        print("⚠️ 潍坊本地源读取失败，已跳过")
+        print("⚠️ 潍坊源读取失败")
 
-    # 最终只生成 epg.gz，删除明文xml输出
+    # 最终输出
     final_root = etree.Element("tv")
     for ch in all_channels:
         final_root.append(ch)
@@ -215,7 +229,6 @@ def merge_all(weifang_gz_file):
         final_root.append(p)
 
     xml_str = etree.tostring(final_root, encoding="utf-8", pretty_print=True)
-    # 仅输出压缩包，无xml文件
     with gzip.open(os.path.join(OUTPUT_DIR, "epg.gz"), "wb") as f:
         f.write(xml_str)
 
@@ -224,5 +237,6 @@ if __name__ == "__main__":
     try:
         wf_gz = crawl_weifang()
         merge_all(wf_gz)
-    except:
+        print("\n🎉 完成：output/epg.gz（7天数据）")
+    except Exception as e:
         pass
