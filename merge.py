@@ -39,13 +39,13 @@ WEIFANG_CHANNELS = [
         "https://picsum.photos/seed/weifang-public/200/120"
     )
 ]
-WEEK_DAY = ["w1", "w2", "w3", "w4", "w5", "w6", "w7"]
 MAX_RETRY = 2
 
 # ====================== 潍坊单频道单天抓取（带重试+精准时间） ======================
 def crawl_weifang_single(ch_name, base_url, day_str, current_day):
     for attempt in range(1, MAX_RETRY + 1):
         try:
+            # 修改为使用日期格式的 URL
             url = f"{base_url}/{day_str}"
             resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
             resp.encoding = "utf-8"
@@ -92,20 +92,19 @@ def crawl_weifang():
             dn.text = ch_name
             icon = etree.SubElement(ch, "icon", src=icon_url)
 
-        # === 修改点：锁定本周一 ===
+        # --- 核心修改：锁定本周一 ---
         today = datetime.now()
-        # 计算今天是周几 (0=周一, 6=周日)
-        weekday = today.weekday() 
-        # 计算本周一的日期
-        base_date = today - timedelta(days=weekday)
+        # 计算距离周一的偏移量 (0=周一, 6=周日)
+        offset = today.weekday() 
+        # 计算本周一的日期对象
+        base_monday = today - timedelta(days=offset)
 
-        # === 修改点：循环7天，严格按照周一到周日 ===
+        # --- 循环7天 (周一到周日) ---
         for day_idx in range(7): 
-            # 1. 计算当前日期 (从周一累加)
-            current_day = base_date + timedelta(days=day_idx)
-            # 2. 获取对应的URL后缀 (w1=周一, w2=周二...)
-            day_str = WEEK_DAY[day_idx] 
-            
+            current_day = base_monday + timedelta(days=day_idx)
+            # 生成 YYYYMMDD 格式的日期字符串
+            day_str = current_day.strftime("%Y%m%d")
+
             for ch_name, base_url, _ in WEIFANG_CHANNELS:
                 programs = crawl_weifang_single(ch_name, base_url, day_str, current_day)
                 for start, stop, title in programs:
