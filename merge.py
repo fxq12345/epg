@@ -47,13 +47,17 @@ def crawl_weifang_single(ch_name, base_url, day_str, current_day):
         try:
             # 修改为使用日期格式的 URL
             url = f"{base_url}/{day_str}"
+            print(f"正在抓取: {url}")  # 增加调试信息
             resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
             resp.encoding = "utf-8"
             soup = BeautifulSoup(resp.text, "html.parser")
             
+            # 检查页面是否包含节目列表
             program_list = []
-            for item in soup.find_all(["div", "li", "p"]):
+            # 尝试匹配多种可能的标签
+            for item in soup.find_all(["div", "li", "p", "span"]):
                 txt = item.get_text(strip=True)
+                # 匹配时间格式，如 08:00 节目名称
                 match = re.match(r"(\d{1,2}:\d{2})\s*(.+)", txt)
                 if not match:
                     continue
@@ -61,9 +65,17 @@ def crawl_weifang_single(ch_name, base_url, day_str, current_day):
                 if len(title) < 2 or "广告" in title:
                     continue
                 hh, mm = time_str.split(":")
+                # 确保时间格式正确
+                if not (hh.isdigit() and mm.isdigit()):
+                    continue
                 prog_time = datetime.combine(current_day, datetime.min.time().replace(hour=int(hh), minute=int(mm)))
                 program_list.append((prog_time, title))
             
+            # 如果没有找到节目，可能是页面结构变化
+            if not program_list:
+                print(f"警告: {url} 未找到节目列表")
+                continue
+
             precise_programs = []
             for i in range(len(program_list)):
                 start_time, title = program_list[i]
@@ -77,7 +89,8 @@ def crawl_weifang_single(ch_name, base_url, day_str, current_day):
             
             time.sleep(0.3)
             return precise_programs
-        except:
+        except Exception as e:
+            print(f"抓取失败 ({attempt}): {e}")  # 打印错误信息
             time.sleep(1)
             continue
     return []
@@ -117,6 +130,7 @@ def crawl_weifang():
         xml_content = etree.tostring(root, encoding="utf-8", pretty_print=True)
         with gzip.open(wf_path, "wb") as f:
             f.write(xml_content)
+        print(f"成功生成: {wf_path}")  # 增加成功信息
         return wf_path
     except Exception as e:
         print(f"潍坊抓取异常: {e}")
@@ -147,7 +161,8 @@ def fetch_with_retry(u, max_retry=MAX_RETRY):
             pg = len(tree.xpath("//programme"))
             if ch > 0 and pg > 0:
                 return (True, tree, ch, pg, attempt)
-        except:
+        except Exception as e:
+            print(f"源抓取失败: {u} - {e}")  # 打印错误信息
             time.sleep(1)
             continue
     return (False, None, 0, 0, max_retry)
@@ -162,6 +177,7 @@ def merge_all(weifang_gz_file):
     fail_cnt = 0
 
     if not os.path.exists("config.txt"):
+        print("警告: config.txt 文件不存在")
         return
 
     with open("config.txt", "r", encoding="utf-8") as f:
@@ -214,8 +230,8 @@ def merge_all(weifang_gz_file):
                     all_programs.append(node)
         else:
             print("⚠️ 潍坊本地源抓取失败，已跳过")
-    except:
-        print("⚠️ 潍坊本地源读取失败，已跳过")
+    except Exception as e:
+        print(f"⚠️ 潍坊本地源读取失败: {e}")
 
     # 最终只生成 epg.gz，删除明文xml输出
     final_root = etree.Element("tv")
@@ -228,11 +244,12 @@ def merge_all(weifang_gz_file):
     # 仅输出压缩包，无xml文件
     with gzip.open(os.path.join(OUTPUT_DIR, "epg.gz"), "wb") as f:
         f.write(xml_str)
+    print(f"成功生成: epg.gz")
 
 # ====================== 入口 ======================
 if __name__ == "__main__":
     try:
         wf_gz = crawl_weifang()
         merge_all(wf_gz)
-    except:
-        pass
+    except Exception as e:
+        print(f"主程序运行失败: {e}")
