@@ -40,6 +40,7 @@ WEIFANG_CHANNELS = [
     )
 ]
 
+# 网站固定后缀：周一w1 ~ 周日w7
 WEEK_MAP = {
     "周一": "w1",
     "周二": "w2",
@@ -82,7 +83,7 @@ def get_page_html(url):
         html = resp.text
         if re.findall(r'\d{1,2}:\d{2}', html):
             return html
-    except Exception as e:
+    except Exception:
         pass
 
     if SELENIUM_AVAILABLE:
@@ -98,18 +99,23 @@ def get_page_html(url):
             html = driver.page_source
             driver.quit()
             return html
-        except:
+        except Exception:
             pass
     return ""
 
+# ====================== 核心：抓【本周一 ~ 本周日】7天（网站一定存在） ======================
 def get_channel_7days(channel_name, base_url):
-    week_list = list(WEEK_MAP.items())
+    week_list = list(WEEK_MAP.items())  # 周一w1 ~ 周日w7
     today = datetime.now()
+    # 本周一（本周起点，网站每周一只更新这7天）
     monday = today - timedelta(days=today.weekday())
     channel_progs = []
 
+    # 遍历：周一(0) ~ 周日(6) → 共7天
     for i, (week_name, w_suffix) in enumerate(week_list):
-        current_date = monday + timedelta(days=i)
+        current_date = monday + timedelta(days=i)  # 本周真实日期
+
+        # 拼接网站URL：w1~w7
         if base_url.endswith('/'):
             url = f"{base_url}{w_suffix}"
         else:
@@ -143,28 +149,28 @@ def get_channel_7days(channel_name, base_url):
                 t_end = day_progs[idx+1][0]
             else:
                 h, m = map(int, t_start.split(':'))
-                end_dt = datetime(2000,1,1,h,m) + timedelta(minutes=30)
+                end_dt = datetime(2000, 1, 1, h, m) + timedelta(minutes=30)
                 t_end = end_dt.strftime("%H:%M")
 
             start = time_to_xmltv(current_date, t_start)
             end = time_to_xmltv(current_date, t_end)
             if start and end:
                 channel_progs.append((start, end, title))
-        time.sleep(1.2)
+        time.sleep(1.0)
     return channel_progs
 
-# ====================== 新版潍坊7天抓取：输出 weifang.gz ======================
+# ====================== 潍坊7天抓取（本周完整7天） ======================
 def crawl_weifang():
     try:
         root = etree.Element("tv")
-        # 写入频道+图标
+        # 频道 + 图标（酷9可用）
         for ch_name, _, icon_url in WEIFANG_CHANNELS:
             ch = etree.SubElement(root, "channel", id=ch_name)
             dn = etree.SubElement(ch, "display-name")
             dn.text = ch_name
             icon = etree.SubElement(ch, "icon", src=icon_url)
 
-        # 抓取7天节目
+        # 抓取本周一~周日7天节目
         for ch_name, base_url, _ in WEIFANG_CHANNELS:
             programs = get_channel_7days(ch_name, base_url)
             for start, stop, title in programs:
@@ -177,7 +183,7 @@ def crawl_weifang():
         with gzip.open(wf_path, "wb") as f:
             f.write(xml_content)
         return wf_path
-    except Exception as e:
+    except Exception:
         # 失败输出空gz
         wf_path = os.path.join(OUTPUT_DIR, "weifang.gz")
         empty_xml = b'<?xml version="1.0" encoding="utf-8"?>\n<tv></tv>'
@@ -185,7 +191,7 @@ def crawl_weifang():
             f.write(empty_xml)
         return wf_path
 
-# ====================== 以下为你原有合并逻辑（完全不变） ======================
+# ====================== 原有合并逻辑（完全不变） ======================
 def fetch_with_retry(u, max_retry=MAX_RETRY):
     for attempt in range(1, max_retry + 1):
         try:
@@ -262,7 +268,7 @@ def merge_all(weifang_gz_file):
             wf_pg = len(wf_tree.xpath("//programme"))
 
         if wf_ch > 0 and wf_pg > 0:
-            print(f"📺 潍坊本地源：频道 {wf_ch} | 节目 {wf_pg}（7天完整+酷9图标）")
+            print(f"📺 潍坊本地源：频道 {wf_ch} | 节目 {wf_pg}（本周一~周日完整7天+酷9图标）")
             for node in wf_tree:
                 if node.tag == "channel":
                     all_channels.append(node)
