@@ -196,7 +196,7 @@ def fetch_with_retry(u, max_retry=MAX_RETRY):
     for attempt in range(1, max_retry + 1):
         try:
             r = requests.get(u, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-            if r.status not in (200, 206):
+            if r.status_code not in (200, 206):
                 time.sleep(1)
                 continue
 
@@ -279,28 +279,22 @@ def merge_all(weifang_gz_file):
     except:
         print("⚠️ 潍坊本地源读取失败，已跳过")
 
-    # ====================== 严格按 display-name 去重，ID完全不判断 ======================
-    seen_names = set()
+    # ====================== 新增：只去重名称完全一样的频道 ======================
+    seen_channel_names = set()
     unique_channels = []
-    duplicate_count = 0
-
-    print("\n【频道去重（仅名称完全相同才去重）】")
     for ch in all_channels:
-        dn = ch.find("display-name")
-        if dn is not None and dn.text:
-            name = dn.text.strip()
-            if name not in seen_names:
-                seen_names.add(name)
+        # 取频道的display-name作为去重依据
+        display_name_node = ch.find("display-name")
+        if display_name_node and display_name_node.text:
+            channel_name = display_name_node.text.strip()
+            if channel_name not in seen_channel_names:
+                seen_channel_names.add(channel_name)
                 unique_channels.append(ch)
-            else:
-                duplicate_count += 1
-                print(f"🚫 已去重重复频道: {name}")
         else:
+            # 没有display-name的频道直接保留
             unique_channels.append(ch)
 
-    print(f"\n✅ 去重完成：保留 {len(unique_channels)} 个频道，移除重复 {duplicate_count} 个\n")
-
-    # 生成最终XML
+    # 生成最终XML（用去重后的频道 + 所有节目）
     final_root = etree.Element("tv")
     for ch in unique_channels:
         final_root.append(ch)
