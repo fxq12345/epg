@@ -196,7 +196,7 @@ def fetch_with_retry(u, max_retry=MAX_RETRY):
     for attempt in range(1, max_retry + 1):
         try:
             r = requests.get(u, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-            if r.status_code not in (200, 206):
+            if r.status not in (200, 206):
                 time.sleep(1)
                 continue
 
@@ -279,8 +279,30 @@ def merge_all(weifang_gz_file):
     except:
         print("⚠️ 潍坊本地源读取失败，已跳过")
 
-    final_root = etree.Element("tv")
+    # ====================== 严格按 display-name 去重，ID完全不判断 ======================
+    seen_names = set()
+    unique_channels = []
+    duplicate_count = 0
+
+    print("\n【频道去重（仅名称完全相同才去重）】")
     for ch in all_channels:
+        dn = ch.find("display-name")
+        if dn is not None and dn.text:
+            name = dn.text.strip()
+            if name not in seen_names:
+                seen_names.add(name)
+                unique_channels.append(ch)
+            else:
+                duplicate_count += 1
+                print(f"🚫 已去重重复频道: {name}")
+        else:
+            unique_channels.append(ch)
+
+    print(f"\n✅ 去重完成：保留 {len(unique_channels)} 个频道，移除重复 {duplicate_count} 个\n")
+
+    # 生成最终XML
+    final_root = etree.Element("tv")
+    for ch in unique_channels:
         final_root.append(ch)
     for p in all_programs:
         final_root.append(p)
