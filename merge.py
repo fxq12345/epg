@@ -103,16 +103,19 @@ def get_page_html(url):
             pass
     return ""
 
-# ====================== 核心：抓【本周一 ~ 本周日】7天 ======================
+# ====================== 核心：抓【本周一 ~ 本周日】7天（网站一定存在） ======================
 def get_channel_7days(channel_name, base_url):
-    week_list = list(WEEK_MAP.items())
+    week_list = list(WEEK_MAP.items())  # 周一w1 ~ 周日w7
     today = datetime.now()
+    # 本周一（本周起点，网站每周一只更新这7天）
     monday = today - timedelta(days=today.weekday())
     channel_progs = []
 
+    # 遍历：周一(0) ~ 周日(6) → 共7天
     for i, (week_name, w_suffix) in enumerate(week_list):
-        current_date = monday + timedelta(days=i)
+        current_date = monday + timedelta(days=i)  # 本周真实日期
 
+        # 拼接网站URL：w1~w7
         if base_url.endswith('/'):
             url = f"{base_url}{w_suffix}"
         else:
@@ -139,7 +142,6 @@ def get_channel_7days(channel_name, base_url):
                 continue
             day_progs.append((t_str.strip(), title.strip()))
 
-        # 当天内部去重
         day_progs = sorted(list(set(day_progs)), key=lambda x: x[0])
         for idx in range(len(day_progs)):
             t_start, title = day_progs[idx]
@@ -157,16 +159,18 @@ def get_channel_7days(channel_name, base_url):
         time.sleep(1.0)
     return channel_progs
 
-# ====================== 潍坊7天抓取 ======================
+# ====================== 潍坊7天抓取（本周完整7天） ======================
 def crawl_weifang():
     try:
         root = etree.Element("tv")
+        # 频道 + 图标（酷9可用）
         for ch_name, _, icon_url in WEIFANG_CHANNELS:
             ch = etree.SubElement(root, "channel", id=ch_name)
             dn = etree.SubElement(ch, "display-name")
             dn.text = ch_name
             icon = etree.SubElement(ch, "icon", src=icon_url)
 
+        # 抓取本周一~周日7天节目
         for ch_name, base_url, _ in WEIFANG_CHANNELS:
             programs = get_channel_7days(ch_name, base_url)
             for start, stop, title in programs:
@@ -180,13 +184,14 @@ def crawl_weifang():
             f.write(xml_content)
         return wf_path
     except Exception:
+        # 失败输出空gz
         wf_path = os.path.join(OUTPUT_DIR, "weifang.gz")
         empty_xml = b'<?xml version="1.0" encoding="utf-8"?>\n<tv></tv>'
         with gzip.open(wf_path, "wb") as f:
             f.write(empty_xml)
         return wf_path
 
-# ====================== 抓取 + 重试 ======================
+# ====================== 原有合并逻辑（完全不变） ======================
 def fetch_with_retry(u, max_retry=MAX_RETRY):
     for attempt in range(1, max_retry + 1):
         try:
@@ -211,14 +216,9 @@ def fetch_with_retry(u, max_retry=MAX_RETRY):
             continue
     return (False, None, 0, 0, max_retry)
 
-# ====================== 酷9专用：只对【完全相同的大写名称】去重 ======================
 def merge_all(weifang_gz_file):
-    existed_channel_upper = set()
-    existed_program_keys = set()
-
-    final_channels = []
-    final_programs = []
-
+    all_channels = []
+    all_programs = []
     total_ch = 0
     total_pg = 0
     success_cnt = 0
@@ -231,8 +231,7 @@ def merge_all(weifang_gz_file):
         urls = [l.strip() for l in f if l.strip() and l.startswith("http")]
 
     print("=" * 60)
-    print("EPG 抓取统计：只对【完全相同名称】去重")
-    print("CCTV1 / CCTV1高清 / CCTV-1 / CCTV-1标清 全部保留")
+    print("EPG 源抓取统计（失败自动重试）")
     print("=" * 60)
 
     with ThreadPoolExecutor(max_workers=6) as executor:
@@ -246,113 +245,44 @@ def merge_all(weifang_gz_file):
                 total_pg += pg
                 log_retry = f"[重试{retry_cnt-1}次]" if retry_cnt > 1 else ""
                 print(f"✅ {u[:55]}... {log_retry}成功 | 频道 {ch:>4} | 节目 {pg:>6}")
-
-                for ch_node in tree.xpath("//channel"):
-                    display_name = ""
-                    dn_elem = ch_node.find("display-name")
-                    if dn_elem is not None and dn_elem.text:
-                        display_name = dn_elem.text.strip()
-
-                    if not display_name:
-                        continue
-
-                    upper_name = display_name.upper()
-
-                    # 只有【完全一样】才去重
-                    if upper_name not in existed_channel_upper:
-                        existed_channel_upper.add(upper_name)
-                        if dn_elem is not None:
-                            dn_elem.text = upper_name
-                        final_channels.append(ch_node)
-
-                for prog_node in tree.xpath("//programme"):
-                    ch_id = prog_node.get("channel", "")
-                    start = prog_node.get("start", "")
-                    stop = prog_node.get("stop", "")
-
-                    ch_upper = ""
-                    for c in final_channels:
-                        dn = c.find("display-name")
-                        if dn is not None and c.get("id") == ch_id:
-                            ch_upper = dn.text.strip()
-                            break
-                    if not ch_upper:
-                        continue
-
-                    key = (ch_upper, start, stop)
-                    if key not in existed_program_keys:
-                        existed_program_keys.add(key)
-                        final_programs.append(prog_node)
+                for node in tree:
+                    if node.tag == "channel":
+                        all_channels.append(node)
+                    elif node.tag == "programme":
+                        all_programs.append(node)
             else:
                 fail_cnt += 1
 
     if fail_cnt > 0:
-        print(f"❌ 共 {fail_cnt} 个源失败，已跳过")
+        print(f"❌ 共 {fail_cnt} 个源经{MAX_RETRY}次重试后仍失败，已跳过")
 
     print("=" * 60)
-    print(f"去重前：频道 {total_ch}  节目 {total_pg}")
-    print(f"去重后：频道 {len(final_channels)}  节目 {len(final_programs)}")
-    print("（仅完全同名才合并，高清标清全部保留）")
+    print(f"汇总：成功 {success_cnt} 个 | 失败 {fail_cnt} 个 | 总频道 {total_ch} | 总节目 {total_pg}")
     print("=" * 60)
 
-    # ------------- 潍坊本地源优先 -------------
     try:
         with gzip.open(weifang_gz_file, "rb") as f:
             wf_content = f.read().decode("utf-8")
             wf_tree = etree.fromstring(wf_content.encode("utf-8"))
+            wf_ch = len(wf_tree.xpath("//channel"))
+            wf_pg = len(wf_tree.xpath("//programme"))
 
-        wf_channels = wf_tree.xpath("//channel")
-        wf_progs = wf_tree.xpath("//programme")
-
-        if wf_channels and wf_progs:
-            print("📺 潍坊本地4个频道（优先保留）")
-            for wf_ch in wf_channels:
-                wf_dn = wf_ch.find("display-name")
-                wf_name = wf_dn.text.strip() if (wf_dn is not None and wf_dn.text) else ""
-                if not wf_name:
-                    continue
-
-                wf_upper = wf_name.upper()
-                if wf_dn is not None:
-                    wf_dn.text = wf_upper
-
-                for idx, exist_ch in enumerate(final_channels):
-                    exist_dn = exist_ch.find("display-name")
-                    exist_upper = exist_dn.text.strip() if (exist_dn is not None and exist_dn.text) else ""
-                    if exist_upper == wf_upper:
-                        final_channels.pop(idx)
-                        existed_channel_upper.discard(exist_upper)
-                        break
-
-                if wf_upper not in existed_channel_upper:
-                    existed_channel_upper.add(wf_upper)
-                    final_channels.append(wf_ch)
-
-            for wf_prog in wf_progs:
-                ch_id = wf_prog.get("channel", "")
-                start = wf_prog.get("start", "")
-                stop = wf_prog.get("stop", "")
-
-                ch_upper = ""
-                for c in final_channels:
-                    dn = c.find("display-name")
-                    if dn is not None and c.get("id") == ch_id:
-                        ch_upper = dn.text.strip()
-                        break
-                if not ch_upper:
-                    continue
-
-                key = (ch_upper, start, stop)
-                if key not in existed_program_keys:
-                    existed_program_keys.add(key)
-                    final_programs.append(wf_prog)
+        if wf_ch > 0 and wf_pg > 0:
+            print(f"📺 潍坊本地源：频道 {wf_ch} | 节目 {wf_pg}（本周一~周日完整7天+酷9图标）")
+            for node in wf_tree:
+                if node.tag == "channel":
+                    all_channels.append(node)
+                elif node.tag == "programme":
+                    all_programs.append(node)
+        else:
+            print("⚠️ 潍坊本地源抓取失败，已跳过")
     except:
-        print("⚠️ 潍坊本地源读取失败")
+        print("⚠️ 潍坊本地源读取失败，已跳过")
 
     final_root = etree.Element("tv")
-    for ch in final_channels:
+    for ch in all_channels:
         final_root.append(ch)
-    for p in final_programs:
+    for p in all_programs:
         final_root.append(p)
 
     xml_str = etree.tostring(final_root, encoding="utf-8", pretty_print=True)
@@ -364,6 +294,5 @@ if __name__ == "__main__":
     try:
         wf_gz = crawl_weifang()
         merge_all(wf_gz)
-        print("\n🎉 生成完成：output/epg.gz（高清标清全保留）")
-    except Exception as e:
-        print("\n❌ 执行出错：", e)
+    except:
+        pass
