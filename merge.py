@@ -16,28 +16,12 @@ signal.alarm(600)
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# ====================== 潍坊4频道配置（带酷9图标） ======================
+# ====================== 潍坊4频道配置 ======================
 WEIFANG_CHANNELS = [
-    (
-        "潍坊新闻频道",
-        "https://m.tvsou.com/epg/db502561",
-        "https://picsum.photos/seed/weifang-news/200/120"
-    ),
-    (
-        "潍坊经济生活频道",
-        "https://m.tvsou.com/epg/47a9d24a",
-        "https://picsum.photos/seed/weifang-econ/200/120"
-    ),
-    (
-        "潍坊科教频道",
-        "https://m.tvsou.com/epg/d131d3d1",
-        "https://picsum.photos/seed/weifang-sci/200/120"
-    ),
-    (
-        "潍坊公共频道",
-        "https://m.tvsou.com/epg/c06f0cc0",
-        "https://picsum.photos/seed/weifang-public/200/120"
-    )
+    ("潍坊新闻频道", "https://m.tvsou.com/epg/db502561"),
+    ("潍坊经济生活频道", "https://m.tvsou.com/epg/47a9d24a"),
+    ("潍坊科教频道", "https://m.tvsou.com/epg/d131d3d1"),
+    ("潍坊公共频道", "https://m.tvsou.com/epg/c06f0cc0")
 ]
 
 # 网站固定后缀：周一w1 ~ 周日w7
@@ -162,28 +146,40 @@ def get_channel_7days(channel_name, base_url):
 # ====================== 潍坊7天抓取（本周完整7天） ======================
 def crawl_weifang():
     try:
+        # 创建XML声明
+        xml_declaration = '<?xml version="1.0" encoding="utf-8"?>\n'
+        
+        # 创建根元素
         root = etree.Element("tv")
-        # 频道 + 图标（酷9可用）
-        for ch_name, _, icon_url in WEIFANG_CHANNELS:
+        
+        # 创建频道
+        for ch_name, _ in WEIFANG_CHANNELS:
             ch = etree.SubElement(root, "channel", id=ch_name)
-            dn = etree.SubElement(ch, "display-name")
+            dn = etree.SubElement(ch, "display-name", lang="zh")
             dn.text = ch_name
-            icon = etree.SubElement(ch, "icon", src=icon_url)
 
         # 抓取本周一~周日7天节目
-        for ch_name, base_url, _ in WEIFANG_CHANNELS:
+        for ch_name, base_url in WEIFANG_CHANNELS:
             programs = get_channel_7days(channel_name=ch_name, base_url=base_url)
             for start, stop, title in programs:
                 prog = etree.SubElement(root, "programme", start=start, stop=stop, channel=ch_name)
-                t = etree.SubElement(prog, "title")
+                t = etree.SubElement(prog, "title", lang="zh")
                 t.text = title
 
         wf_path = os.path.join(OUTPUT_DIR, "weifang.gz")
-        xml_content = etree.tostring(root, encoding="utf-8", pretty_print=True)
+        
+        # 生成XML并格式化
+        xml_content = etree.tostring(root, encoding="utf-8", pretty_print=True, xml_declaration=False)
+        xml_content = xml_declaration.encode('utf-8') + xml_content
+        
         with gzip.open(wf_path, "wb") as f:
             f.write(xml_content)
+            
+        print(f"✅ 潍坊EPG已保存: {wf_path}")
         return wf_path
-    except Exception:
+        
+    except Exception as e:
+        print(f"❌ 潍坊源抓取失败: {e}")
         # 失败输出空gz
         wf_path = os.path.join(OUTPUT_DIR, "weifang.gz")
         empty_xml = b'<?xml version="1.0" encoding="utf-8"?>\n<tv></tv>'
@@ -191,7 +187,7 @@ def crawl_weifang():
             f.write(empty_xml)
         return wf_path
 
-# ====================== 原有合并逻辑（完全不变） ======================
+# ====================== 原有合并逻辑 ======================
 def fetch_with_retry(u, max_retry=MAX_RETRY):
     for attempt in range(1, max_retry + 1):
         try:
@@ -205,13 +201,25 @@ def fetch_with_retry(u, max_retry=MAX_RETRY):
             else:
                 content = r.text
 
-            content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', content).replace("& ", "&amp; ")
-            tree = etree.fromstring(content.encode("utf-8"))
+            # 清理XML内容
+            content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', content)
+            content = content.replace("& ", "&amp; ")
+            
+            # 修复常见的XML格式问题
+            content = re.sub(r'channel=\s*(\w+)', r'channel="\1"', content)  # 修复 channel=xxx 为 channel="xxx"
+            content = re.sub(r'start=\s*(\d{14})', r'start="\1"', content)   # 修复 start=xxx 为 start="xxx"
+            content = re.sub(r'stop=\s*(\d{14})', r'stop="\1"', content)     # 修复 stop=xxx 为 stop="xxx"
+            
+            # 解析XML
+            parser = etree.XMLParser(recover=True)
+            tree = etree.fromstring(content.encode("utf-8"), parser=parser)
+            
             ch = len(tree.xpath("//channel"))
             pg = len(tree.xpath("//programme"))
             if ch > 0 and pg > 0:
                 return (True, tree, ch, pg, attempt)
-        except:
+        except Exception as e:
+            print(f"❌ 抓取失败 {u[:50]}...: {e}")
             time.sleep(1)
             continue
     return (False, None, 0, 0, max_retry)
@@ -225,10 +233,15 @@ def merge_all(weifang_gz_file):
     fail_cnt = 0
 
     if not os.path.exists("config.txt"):
+        print("❌ 未找到 config.txt 文件")
         return
 
     with open("config.txt", "r", encoding="utf-8") as f:
         urls = [l.strip() for l in f if l.strip() and l.startswith("http")]
+
+    if not urls:
+        print("❌ config.txt 中没有找到有效的URL")
+        return
 
     print("=" * 60)
     print("EPG 源抓取统计（失败自动重试）")
@@ -268,7 +281,7 @@ def merge_all(weifang_gz_file):
             wf_pg = len(wf_tree.xpath("//programme"))
 
         if wf_ch > 0 and wf_pg > 0:
-            print(f"📺 潍坊本地源：频道 {wf_ch} | 节目 {wf_pg}（本周一~周日完整7天+酷9图标）")
+            print(f"📺 潍坊本地源：频道 {wf_ch} | 节目 {wf_pg}（本周一~周日完整7天）")
             for node in wf_tree:
                 if node.tag == "channel":
                     all_channels.append(node)
@@ -276,13 +289,15 @@ def merge_all(weifang_gz_file):
                     all_programs.append(node)
         else:
             print("⚠️ 潍坊本地源抓取失败，已跳过")
-    except:
-        print("⚠️ 潍坊本地源读取失败，已跳过")
+    except Exception as e:
+        print(f"⚠️ 潍坊本地源读取失败: {e}")
+
+    print(f"去重前: {len(all_channels)} 个频道, {len(all_programs)} 个节目")
 
     # ====================== 修复：名称相同，无论ID，只保留第一个 ======================
     seen_channel_names = set()
     unique_channels = []
-    channel_id_mapping = {}  # 存储频道名称到保留频道ID的映射
+    channel_id_mapping = {}  # 存储原始频道ID到保留频道ID的映射
     
     for ch in all_channels:
         # 获取频道名称（不区分大小写）
@@ -292,7 +307,7 @@ def merge_all(weifang_gz_file):
             channel_name_lower = channel_name.lower()  # 转换为小写进行不区分大小写的比较
             
             # 获取频道ID
-            channel_id = ch.get('id')
+            channel_id = ch.get('id', '')
             
             if channel_name_lower not in seen_channel_names:
                 # 第一次出现这个频道名称，保留它
@@ -313,34 +328,65 @@ def merge_all(weifang_gz_file):
             # 没有display-name的频道，无法判断重复，直接保留
             unique_channels.append(ch)
     
+    print(f"去重后: {len(unique_channels)} 个频道")
+    
     # 修复节目中的频道ID引用
+    updated_programs_count = 0
     for prog in all_programs:
         old_channel_id = prog.get('channel')
-        if old_channel_id and old_channel_id in channel_id_mapping:
-            # 更新为保留频道的ID
-            prog.set('channel', channel_id_mapping[old_channel_id])
+        
+        # 尝试查找这个ID是否在映射表中
+        for old_id, new_id in channel_id_mapping.items():
+            if old_channel_id == old_id:
+                prog.set('channel', new_id)
+                updated_programs_count += 1
+                break
+    
+    print(f"更新了 {updated_programs_count} 个节目的频道引用")
     
     # 生成最终XML（用去重后的频道 + 更新后的节目）
+    xml_declaration = '<?xml version="1.0" encoding="utf-8"?>\n'
     final_root = etree.Element("tv")
+    
+    # 对频道按名称排序
+    unique_channels.sort(key=lambda x: x.findtext("display-name", "").lower())
+    
     for ch in unique_channels:
         final_root.append(ch)
+    
+    # 对节目按频道和开始时间排序
+    all_programs.sort(key=lambda x: (x.get("channel", ""), x.get("start", "")))
     for p in all_programs:
         final_root.append(p)
 
-    xml_str = etree.tostring(final_root, encoding="utf-8", pretty_print=True)
+    # 生成XML字符串
+    xml_str = etree.tostring(final_root, encoding="utf-8", pretty_print=True, xml_declaration=False)
+    xml_str = xml_declaration.encode('utf-8') + xml_str
+    
     output_path = os.path.join(OUTPUT_DIR, "epg.gz")
     with gzip.open(output_path, "wb") as f:
         f.write(xml_str)
     
     print(f"✅ 最终输出：频道 {len(unique_channels)} 个 | 节目 {len(all_programs)} 个")
     print(f"📁 输出文件：{output_path}")
+    
+    # 保存一份未压缩的XML用于调试和查看格式
+    xml_debug_path = os.path.join(OUTPUT_DIR, "epg.xml")
+    with open(xml_debug_path, "wb") as f:
+        f.write(xml_str)
+    print(f"📁 调试文件（未压缩）：{xml_debug_path}")
     print("=" * 60)
 
 # ====================== 入口 ======================
 if __name__ == "__main__":
     try:
+        print("开始抓取潍坊本地EPG...")
         wf_gz = crawl_weifang()
+        print("开始合并所有EPG源...")
         merge_all(wf_gz)
+        print("✅ EPG合并完成！")
     except Exception as e:
         print(f"❌ 脚本执行失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise
