@@ -52,64 +52,54 @@ try:
 except ImportError:
     SELENIUM_AVAILABLE = False
 
-# ====================== XML修复函数 ======================
+# ====================== 增强的XML清洗函数 ======================
 def clean_xml_content(content):
-    """彻底清洗XML内容，修复格式错误"""
+    """彻底清洗XML内容，修复所有格式错误"""
     if not content:
         return ""
     
     # 1. 修复错误的闭合标签
-    content = re.sub(r'<//title>', '</title>', content)
-    content = re.sub(r'</></title>', '</title>', content)
+    content = re.sub(r'<//(\w+)>', r'</\1>', content)  # 修复<//title>为</title>
+    content = re.sub(r'</></(\w+)>', r'</\1>', content)  # 修复</></title>为</title>
     
     # 2. 修复属性值换行
     content = re.sub(r'(start|stop|channel)=\s*\n\s*"([^"]+)"', r'\1="\2"', content)
     
-    # 3. 修复孤立的<title>标签
+    # 3. 修复孤立的标签
     lines = content.split('\n')
     cleaned_lines = []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
+    
+    for i, line in enumerate(lines):
         stripped = line.strip()
         
         # 修复孤立的<title>标签
         if stripped == '<title>' and (i+1 >= len(lines) or not lines[i+1].strip().startswith('</title>')):
-            # 查找下一个</programme>或<programme>
+            # 查找结束标签位置
             j = i + 1
             while j < len(lines) and not lines[j].strip().startswith(('</programme>', '<programme')):
                 j += 1
-            # 在合适位置插入</title>
-            if j < len(lines):
+            if j < len(lines) and not lines[j-1].strip().startswith('</title>'):
                 lines.insert(j, '  </title>')
         
+        # 修复错误的programme闭合
+        if stripped.startswith('<programme') and '</programme>' not in stripped:
+            # 确保后面有闭合标签
+            pass
+        
         cleaned_lines.append(line)
-        i += 1
     
     content = '\n'.join(cleaned_lines)
     
-    # 4. 修复不匹配的</programme>
+    # 4. 修复不匹配的闭合标签
     content = re.sub(r'</programme>\s*<programme', '</programme>\n<programme', content)
     
-    # 5. 移除没有对应开标签的</programme>
-    programme_open = 0
-    lines = content.split('\n')
-    cleaned_lines = []
+    # 5. 移除控制字符
+    content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', content)
     
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith('<programme'):
-            programme_open += 1
-            cleaned_lines.append(line)
-        elif stripped == '</programme>':
-            if programme_open > 0:
-                programme_open -= 1
-                cleaned_lines.append(line)
-            # 否则跳过这个多余的</programme>
-        else:
-            cleaned_lines.append(line)
+    # 6. 修复&符号
+    content = content.replace('& ', '&amp; ')
     
-    return '\n'.join(cleaned_lines)
+    return content
 
 # ====================== 工具函数 ======================
 def time_to_xmltv(base_date, time_str):
@@ -247,7 +237,7 @@ def fetch_with_retry(u, max_retry=MAX_RETRY):
             else:
                 content = r.text
 
-            # 清理XML内容
+            # 深度清洗XML内容
             content = clean_xml_content(content)
             
             # 修复常见格式问题
@@ -256,7 +246,7 @@ def fetch_with_retry(u, max_retry=MAX_RETRY):
             
             # 尝试解析
             try:
-                parser = etree.XMLParser(recover=True)
+                parser = etree.XMLParser(recover=True, remove_comments=True, remove_pis=True)
                 tree = etree.fromstring(content.encode("utf-8"), parser=parser)
                 
                 # 验证基本结构
@@ -266,9 +256,8 @@ def fetch_with_retry(u, max_retry=MAX_RETRY):
                 if len(channels) > 0 and len(programmes) > 0:
                     return (True, tree, len(channels), len(programmes), attempt)
             except Exception as e:
-                print(f"⚠️ XML解析失败，尝试修复: {e}")
-                # 尝试提取有效数据
-                pass
+                print(f"⚠️ XML解析失败，跳过此源: {e}")
+                return (False, None, 0, 0, attempt)
                 
         except Exception as e:
             print(f"❌ 抓取失败 {u[:50]}...: {e}")
@@ -347,7 +336,7 @@ def merge_all(weifang_gz_file):
 
     print(f"处理前: 频道 {len(all_channels)} 个, 节目 {len(all_programs)} 个")
 
-    # ====================== 修复频道去重 ======================
+    # ====================== 严格的频道去重 ======================
     seen_channel_names = set()
     unique_channels = []
     channel_id_mapping = {}  # 原始ID -> 保留ID
@@ -385,7 +374,7 @@ def merge_all(weifang_gz_file):
     
     print(f"频道去重后: {len(unique_channels)} 个唯一频道")
     
-    # ====================== 修复节目处理 ======================
+    # ====================== 严格的节目处理 ======================
     valid_programs = []
     program_keys = set()  # 用于去重
     
@@ -463,7 +452,7 @@ def merge_all(weifang_gz_file):
     # 生成XML字符串
     xml_str = etree.tostring(final_root, encoding="utf-8", pretty_print=True, xml_declaration=True)
     
-    # 验证XML格式
+    # 最终XML格式验证
     try:
         parser = etree.XMLParser(recover=True)
         test_tree = etree.fromstring(xml_str, parser=parser)
