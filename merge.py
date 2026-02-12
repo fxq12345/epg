@@ -8,8 +8,6 @@ from lxml import etree
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
-from collections import defaultdict
-import hashlib
 
 # 10分钟强制终止
 signal.signal(signal.SIGALRM, lambda s, f: os._exit(0))
@@ -89,36 +87,7 @@ def get_page_html(url):
             pass
     return ""
 
-def clean_channel_name(name):
-    """清理频道名称"""
-    if not name:
-        return ""
-    # 移除多余空格和特殊字符
-    name = re.sub(r'\s+', ' ', name.strip())
-    # 标准化一些常见名称
-    name = re.sub(r'CCTV-(\d+)', r'CCTV\1', name)
-    name = re.sub(r'CCTV(\d+)高清', r'CCTV\1', name)
-    name = re.sub(r'CCTV(\d+)HD', r'CCTV\1', name)
-    return name
-
-def create_channel_id(name):
-    """从频道名称创建规范的频道ID"""
-    if not name:
-        return "unknown"
-    
-    # 移除所有非字母数字字符，用下划线连接
-    clean_id = re.sub(r'[^\w]+', '_', name.strip())
-    # 移除连续的下划线
-    clean_id = re.sub(r'_+', '_', clean_id)
-    # 移除首尾下划线
-    clean_id = clean_id.strip('_')
-    # 确保以字母开头
-    if clean_id and not clean_id[0].isalpha():
-        clean_id = 'ch_' + clean_id
-    
-    return clean_id if clean_id else f"channel_{hashlib.md5(name.encode()).hexdigest()[:8]}"
-
-# ====================== 核心：抓【本周一 ~ 周日】7天 ======================
+# ====================== 核心：抓【本周一 ~ 本周日】7天 ======================
 def get_channel_7days(channel_name, base_url):
     week_list = list(WEEK_MAP.items())
     today = datetime.now()
@@ -176,16 +145,14 @@ def crawl_weifang():
     try:
         root = etree.Element("tv")
         for ch_name, _ in WEIFANG_CHANNELS:
-            ch_id = create_channel_id(ch_name)
-            ch = etree.SubElement(root, "channel", id=ch_id)
+            ch = etree.SubElement(root, "channel", id=ch_name)
             dn = etree.SubElement(ch, "display-name", lang="zh")
             dn.text = ch_name
 
         for ch_name, base_url in WEIFANG_CHANNELS:
             programs = get_channel_7days(channel_name=ch_name, base_url=base_url)
-            ch_id = create_channel_id(ch_name)
             for start, stop, title in programs:
-                prog = etree.SubElement(root, "programme", start=start, stop=stop, channel=ch_id)
+                prog = etree.SubElement(root, "programme", start=start, stop=stop, channel=ch_name)
                 t = etree.SubElement(prog, "title", lang="zh")
                 t.text = title
 
@@ -206,34 +173,11 @@ def crawl_weifang():
             f.write(empty_xml)
         return wf_path
 
-# ====================== XML修复和清洗函数 ======================
-def extract_valid_xml(content):
-    """从可能格式错误的内容中提取有效的XML"""
-    if not content:
-        return None
-    
-    # 1. 查找所有有效的channel元素
-    channel_pattern = r'<channel\s+[^>]*id\s*=\s*["\'][^"\']+["\'][^>]*>.*?</channel>'
-    channels = re.findall(channel_pattern, content, re.DOTALL | re.IGNORECASE)
-    
-    # 2. 查找所有有效的programme元素
-    programme_pattern = r'<programme\s+[^>]*start\s*=\s*["\'][^"\']+["\'][^>]*stop\s*=\s*["\'][^"\']+["\'][^>]*>.*?</programme>'
-    programmes = re.findall(programme_pattern, content, re.DOTALL | re.IGNORECASE)
-    
-    # 如果找到了内容，重新构建规范的XML
-    if channels or programmes:
-        xml_parts = ['<?xml version="1.0" encoding="utf-8"?>', '<tv>']
-        xml_parts.extend(channels)
-        xml_parts.extend(programmes)
-        xml_parts.append('</tv>')
-        return '\n'.join(xml_parts)
-    
-    return None
-
+# ====================== 原有合并逻辑 ======================
 def fetch_with_retry(u, max_retry=MAX_RETRY):
     for attempt in range(1, max_retry + 1):
         try:
-            r = requests.get(u, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            r = requests.get(u, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
             if r.status_code not in (200, 206):
                 time.sleep(1)
                 continue
@@ -243,27 +187,12 @@ def fetch_with_retry(u, max_retry=MAX_RETRY):
             else:
                 content = r.text
 
-            # 尝试直接解析
-            try:
-                parser = etree.XMLParser(recover=True)
-                tree = etree.fromstring(content.encode("utf-8"), parser=parser)
-                ch = len(tree.xpath("//channel"))
-                pg = len(tree.xpath("//programme"))
-                if ch > 0 and pg > 0:
-                    return (True, tree, ch, pg, attempt)
-            except:
-                pass
-            
-            # 如果直接解析失败，尝试提取有效内容
-            fixed_xml = extract_valid_xml(content)
-            if fixed_xml:
-                parser = etree.XMLParser(recover=True)
-                tree = etree.fromstring(fixed_xml.encode("utf-8"), parser=parser)
-                ch = len(tree.xpath("//channel"))
-                pg = len(tree.xpath("//programme"))
-                if ch > 0 and pg > 0:
-                    return (True, tree, ch, pg, attempt)
-                    
+            content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', content).replace("& ", "&amp; ")
+            tree = etree.fromstring(content.encode("utf-8"))
+            ch = len(tree.xpath("//channel"))
+            pg = len(tree.xpath("//programme"))
+            if ch > 0 and pg > 0:
+                return (True, tree, ch, pg, attempt)
         except Exception as e:
             print(f"❌ 抓取失败 {u[:50]}...: {e}")
             time.sleep(1)
@@ -271,10 +200,8 @@ def fetch_with_retry(u, max_retry=MAX_RETRY):
     return (False, None, 0, 0, max_retry)
 
 def merge_all(weifang_gz_file):
-    # 存储处理后的频道和节目
-    channel_data = {}  # 频道ID -> (显示名称, 原始频道节点)
-    program_data = defaultdict(list)  # 频道ID -> 节目列表
-    
+    all_channels = []
+    all_programs = []
     total_ch = 0
     total_pg = 0
     success_cnt = 0
@@ -295,7 +222,7 @@ def merge_all(weifang_gz_file):
     print("EPG 源抓取统计（失败自动重试）")
     print("=" * 60)
 
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    with ThreadPoolExecutor(max_workers=6) as executor:
         future_map = {executor.submit(fetch_with_retry, u): u for u in urls}
         for fut in future_map:
             u = future_map[fut]
@@ -306,58 +233,11 @@ def merge_all(weifang_gz_file):
                 total_pg += pg
                 log_retry = f"[重试{retry_cnt-1}次]" if retry_cnt > 1 else ""
                 print(f"✅ {u[:55]}... {log_retry}成功 | 频道 {ch:>4} | 节目 {pg:>6}")
-                
-                # 处理频道
-                for channel in tree.xpath("//channel"):
-                    try:
-                        channel_id = channel.get('id')
-                        if not channel_id:
-                            continue
-                            
-                        display_name = channel.findtext("display-name", "").strip()
-                        if not display_name:
-                            display_name = channel_id
-                        
-                        # 清理频道名称
-                        clean_name = clean_channel_name(display_name)
-                        clean_id = create_channel_id(clean_name)
-                        
-                        # 存储频道数据
-                        channel_data[clean_id] = (clean_name, channel)
-                        
-                    except Exception as e:
-                        print(f"⚠️ 处理频道时出错: {e}")
-                        continue
-                
-                # 处理节目
-                for programme in tree.xpath("//programme"):
-                    try:
-                        channel_id = programme.get('channel')
-                        start = programme.get('start')
-                        stop = programme.get('stop')
-                        title = programme.findtext("title", "").strip()
-                        
-                        if not all([channel_id, start, stop, title]):
-                            continue
-                            
-                        # 查找对应的频道ID
-                        display_name = ""
-                        for ch_id, (ch_name, _) in channel_data.items():
-                            # 如果频道ID匹配或显示名称匹配
-                            if channel_id == ch_id:
-                                clean_id = ch_id
-                                break
-                        else:
-                            # 如果没有找到匹配，尝试清理原始频道ID
-                            clean_id = create_channel_id(channel_id)
-                        
-                        # 检查节目是否重复（相同的频道、开始时间和标题）
-                        program_key = f"{clean_id}_{start}_{hashlib.md5(title.encode()).hexdigest()[:8]}"
-                        program_data[clean_id].append((start, stop, title, program_key))
-                        
-                    except Exception as e:
-                        print(f"⚠️ 处理节目时出错: {e}")
-                        continue
+                for node in tree:
+                    if node.tag == "channel":
+                        all_channels.append(node)
+                    elif node.tag == "programme":
+                        all_programs.append(node)
             else:
                 fail_cnt += 1
 
@@ -365,111 +245,117 @@ def merge_all(weifang_gz_file):
         print(f"❌ 共 {fail_cnt} 个源经{MAX_RETRY}次重试后仍失败，已跳过")
 
     print("=" * 60)
-    print(f"汇总：成功 {success_cnt} 个 | 失败 {fail_cnt} 个 | 总频道 {len(channel_data)} | 总节目 {sum(len(v) for v in program_data.values())}")
+    print(f"汇总：成功 {success_cnt} 个 | 失败 {fail_cnt} 个 | 总频道 {total_ch} | 总节目 {total_pg}")
     print("=" * 60)
 
-    # 添加潍坊本地源
     try:
         with gzip.open(weifang_gz_file, "rb") as f:
             wf_content = f.read().decode("utf-8")
-            parser = etree.XMLParser(recover=True)
-            wf_tree = etree.fromstring(wf_content.encode("utf-8"), parser)
-            
-            for channel in wf_tree.xpath("//channel"):
-                channel_id = channel.get('id')
-                display_name = channel.findtext("display-name", "").strip()
-                
-                if channel_id and display_name:
-                    clean_name = clean_channel_name(display_name)
-                    clean_id = create_channel_id(clean_name)
-                    channel_data[clean_id] = (clean_name, channel)
-            
-            for programme in wf_tree.xpath("//programme"):
-                channel_id = programme.get('channel')
-                start = programme.get('start')
-                stop = programme.get('stop')
-                title = programme.findtext("title", "").strip()
-                
-                if not all([channel_id, start, stop, title]):
-                    continue
-                
-                # 查找对应的频道ID
-                display_name = ""
-                for ch_id, (ch_name, _) in channel_data.items():
-                    if channel_id == ch_id:
-                        clean_id = ch_id
-                        break
-                else:
-                    clean_id = create_channel_id(channel_id)
-                
-                program_key = f"{clean_id}_{start}_{hashlib.md5(title.encode()).hexdigest()[:8]}"
-                program_data[clean_id].append((start, stop, title, program_key))
-                
+            wf_tree = etree.fromstring(wf_content.encode("utf-8"))
+            wf_ch = len(wf_tree.xpath("//channel"))
+            wf_pg = len(wf_tree.xpath("//programme"))
+
+        if wf_ch > 0 and wf_pg > 0:
+            print(f"📺 潍坊本地源：频道 {wf_ch} | 节目 {wf_pg}（本周一~周日完整7天）")
+            for node in wf_tree:
+                if node.tag == "channel":
+                    all_channels.append(node)
+                elif node.tag == "programme":
+                    all_programs.append(node)
+        else:
+            print("⚠️ 潍坊本地源抓取失败，已跳过")
     except Exception as e:
         print(f"⚠️ 潍坊本地源读取失败: {e}")
 
-    print(f"处理后的频道数量: {len(channel_data)}")
-    print(f"处理后的节目数量: {sum(len(v) for v in program_data.values())}")
+    print(f"处理前: 频道 {len(all_channels)} 个, 节目 {len(all_programs)} 个")
+
+    # ====================== 修复：只对频道去重，保留所有节目 ======================
+    seen_channel_names = set()
+    unique_channels = []
+    channel_id_mapping = {}  # 存储原始频道ID到保留频道ID的映射
     
-    # ====================== 去重节目 ======================
-    print("开始去重节目...")
-    for channel_id in list(program_data.keys()):
-        programs = program_data[channel_id]
-        # 使用集合去重
-        unique_programs = {}
-        for start, stop, title, key in programs:
-            unique_programs[key] = (start, stop, title)
-        # 按开始时间排序
-        sorted_programs = sorted(unique_programs.values(), key=lambda x: x[0])
-        program_data[channel_id] = sorted_programs
+    for ch in all_channels:
+        # 获取频道名称（不区分大小写）
+        display_name_node = ch.find("display-name")
+        if display_name_node is not None and display_name_node.text:
+            channel_name = display_name_node.text.strip()
+            channel_name_lower = channel_name.lower()  # 转换为小写进行不区分大小写的比较
+            
+            # 获取频道ID
+            channel_id = ch.get('id', '')
+            
+            if channel_name_lower not in seen_channel_names:
+                # 第一次出现这个频道名称，保留它
+                seen_channel_names.add(channel_name_lower)
+                unique_channels.append(ch)
+                
+                # 记录这个频道名称对应的ID（保留频道的ID）
+                if channel_id:
+                    channel_id_mapping[channel_name_lower] = channel_id
+            else:
+                # 重复的频道名称，跳过不保留
+                # 但需要记录这个频道的ID映射关系，以便后续更新节目
+                if channel_id and channel_name_lower in channel_id_mapping:
+                    # 记录重复频道的ID到保留频道ID的映射
+                    retained_id = channel_id_mapping[channel_name_lower]
+                    channel_id_mapping[channel_id] = retained_id
+        else:
+            # 没有display-name的频道，直接保留
+            unique_channels.append(ch)
     
-    total_unique_programs = sum(len(v) for v in program_data.values())
-    print(f"去重后的节目数量: {total_unique_programs}")
+    print(f"频道去重后: {len(unique_channels)} 个唯一频道")
     
-    # ====================== 生成最终XML ======================
-    print("生成最终XML...")
-    root = etree.Element("tv")
+    # 更新节目中的频道ID引用（但不删除任何节目）
+    updated_programs = []
+    for prog in all_programs:
+        try:
+            old_channel_id = prog.get('channel')
+            if not old_channel_id:
+                updated_programs.append(prog)
+                continue
+            
+            # 查找映射关系
+            new_channel_id = old_channel_id
+            for ch_name_lower, retained_id in channel_id_mapping.items():
+                if old_channel_id == retained_id:
+                    break
+                elif old_channel_id in channel_id_mapping:
+                    new_channel_id = channel_id_mapping[old_channel_id]
+                    prog.set('channel', new_channel_id)
+                    break
+            
+            updated_programs.append(prog)
+        except Exception as e:
+            print(f"⚠️ 更新节目时出错: {e}")
+            updated_programs.append(prog)
     
-    # 添加频道
-    for channel_id, (display_name, _) in sorted(channel_data.items()):
-        ch = etree.SubElement(root, "channel", id=channel_id)
-        dn = etree.SubElement(ch, "display-name", lang="zh")
-        dn.text = display_name
+    all_programs = updated_programs
+    print(f"节目处理: 保留了 {len(all_programs)} 个节目（不进行节目去重）")
     
-    # 添加节目
-    for channel_id, programs in program_data.items():
-        for start, stop, title in programs:
-            prog = etree.SubElement(root, "programme", start=start, stop=stop, channel=channel_id)
-            t = etree.SubElement(prog, "title", lang="zh")
-            t.text = title
-    
-    # 生成XML
-    xml_declaration = '<?xml version="1.0" encoding="utf-8"?>\n'
-    xml_str = xml_declaration.encode('utf-8') + etree.tostring(root, encoding="utf-8", pretty_print=True)
-    
-    # 保存压缩文件
+    # 生成最终XML（用去重后的频道 + 所有节目）
+    final_root = etree.Element("tv")
+    for ch in unique_channels:
+        final_root.append(ch)
+    for p in all_programs:
+        final_root.append(p)
+
+    xml_str = etree.tostring(final_root, encoding="utf-8", pretty_print=True, xml_declaration=True)
     output_path = os.path.join(OUTPUT_DIR, "epg.gz")
     with gzip.open(output_path, "wb") as f:
         f.write(xml_str)
     
     # 计算文件大小
     file_size_mb = os.path.getsize(output_path) / 1024 / 1024
-    print(f"✅ 最终输出：频道 {len(channel_data)} 个 | 节目 {total_unique_programs} 个")
+    print(f"✅ 最终输出：频道 {len(unique_channels)} 个 | 节目 {len(all_programs)} 个")
     print(f"📦 文件大小：{file_size_mb:.2f} MB")
     print(f"📁 输出文件：{output_path}")
+    print("=" * 60)
     
-    # 保存未压缩的XML用于调试
+    # 保存一份未压缩的XML用于调试
     xml_debug_path = os.path.join(OUTPUT_DIR, "epg.xml")
     with open(xml_debug_path, "wb") as f:
         f.write(xml_str)
     print(f"📁 调试文件（未压缩）：{xml_debug_path}")
-    
-    # 显示压缩前后大小对比
-    if os.path.exists(os.path.join(OUTPUT_DIR, "weifang.gz")):
-        wf_size = os.path.getsize(os.path.join(OUTPUT_DIR, "weifang.gz")) / 1024
-        epg_size = os.path.getsize(output_path) / 1024
-        print(f"📊 大小对比：潍坊源 {wf_size:.1f} KB | 合并后 {epg_size:.1f} KB | 差异 {epg_size-wf_size:.1f} KB")
-    
     print("=" * 60)
 
 # ====================== 入口 ======================
