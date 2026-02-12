@@ -154,7 +154,10 @@ def merge_all(weifang_gz):
         print("❌ 无config.txt")
         return
 
-    urls = [l.strip() for l in open("config.txt","utf-8") if l.strip().startswith("http")]
+    # 修复：open() 函数的正确用法
+    with open("config.txt", "r", encoding="utf-8") as f:
+        urls = [l.strip() for l in f if l.strip().startswith("http")]
+
     if not urls:
         print("❌ 无有效URL")
         return
@@ -168,16 +171,16 @@ def merge_all(weifang_gz):
             if ok:
                 all_trees.append(t)
 
-    # 读取潍坊（修复了 invalid mode: 'utf-8' 错误）
+    # 读取潍坊
     try:
         with gzip.open(weifang_gz, "rb") as f:
-            wf_content = f.read()  # 以二进制读取
-            wf_tree = etree.fromstring(wf_content)  # 直接解析二进制
+            wf_content = f.read()
+            wf_tree = etree.fromstring(wf_content)
             all_trees.append(wf_tree)
     except Exception as e:
         print(f"⚠️ 潍坊文件读取失败: {e}")
 
-    # ====================== 超级轻量去重（兼容所有播放器） ======================
+    # 轻量去重
     final = etree.Element("tv")
     seen_channel_id = set()
     seen_program_key = set()
