@@ -131,7 +131,25 @@ def crawl_weifang():
         return p
 
 # ====================== 抓取上游源 ======================
-ddef merge_all(weifang_gz):
+def fetch_with_retry(u):
+    for _ in range(MAX_RETRY):
+        try:
+            r = requests.get(u, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code not in (200, 206):
+                time.sleep(1)
+                continue
+            c = gzip.decompress(r.content).decode("utf-8","ignore") if u.endswith(".gz") else r.text
+            c = re.sub(r'[\x00-\x1f]', '', c).replace("& ", "&amp; ")
+            tree = etree.fromstring(c.encode("utf-8"))
+            ch = len(tree.xpath("//channel"))
+            pg = len(tree.xpath("//programme"))
+            if ch>0 and pg>0:
+                return True, tree
+        except:
+            time.sleep(1)
+    return False, None
+
+def merge_all(weifang_gz):
     if not os.path.exists("config.txt"):
         print("❌ 无config.txt")
         return
@@ -162,45 +180,39 @@ ddef merge_all(weifang_gz):
     except Exception as e:
         print(f"⚠️ 潍坊文件读取失败: {e}")
 
-    # ====================== 改进去重：优先保留潍坊源，避免误删当天节目 ======================
+    # 轻量去重
     final = etree.Element("tv")
     seen_channel_id = set()
-    # 用 (频道ID, 开始时间) 作为键，优先保留后加入的（即潍坊源）
-    program_map = {}
+    seen_program_key = set()
 
-    # 先处理上游源，再处理潍坊源，这样潍坊源会覆盖上游源的同时间节目
     for tree in all_trees:
         for node in tree:
             if node.tag == "channel":
-                cid = node.get("id", "")
+                cid = node.get("id","")
                 if cid and cid not in seen_channel_id:
                     seen_channel_id.add(cid)
                     final.append(node)
 
             elif node.tag == "programme":
-                c = node.get("channel", "")
-                s = node.get("start", "")
-                if c and s:
-                    # 用 (频道ID, 开始时间) 作为键
-                    key = (c, s)
-                    # 如果键已存在，后加入的（潍坊源）会覆盖先加入的（上游源）
-                    program_map[key] = node
-
-    # 把去重后的节目按频道和时间排序
-    sorted_programs = sorted(program_map.values(), key=lambda x: (x.get("channel", ""), x.get("start", "")))
-    for p in sorted_programs:
-        final.append(p)
+                c = node.get("channel","")
+                s = node.get("start","")
+                e = node.get("stop","")
+                key = (c, s, e)
+                if c and s and e and key not in seen_program_key:
+                    seen_program_key.add(key)
+                    final.append(node)
 
     # 输出
     out = os.path.join(OUTPUT_DIR, "epg.gz")
     xml = etree.tostring(final, encoding="utf-8", xml_declaration=True)
-    with gzip.open(out, "wb") as f:
+    with gzip.open(out,"wb") as f:
         f.write(xml)
 
-    size_mb = os.path.getsize(out) / 1024 / 1024
+    size_mb = os.path.getsize(out)/1024/1024
     print(f"✅ 合并完成！文件大小：{size_mb:.2f}MB")
-    print(f"✅ 频道：{len(seen_channel_id)}  节目：{len(program_map)}")
+    print(f"✅ 频道：{len(seen_channel_id)}  节目：{len(seen_program_key)}")
     print("📁 输出：" + out)
+
 # ====================== 入口 ======================
 if __name__ == "__main__":
     try:
