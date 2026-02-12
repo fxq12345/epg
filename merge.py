@@ -385,13 +385,6 @@ def merge_all(weifang_gz_file):
     print(f"📦 文件大小：{file_size_mb:.2f} MB")
     print(f"📁 输出文件：{output_path}")
     print("=" * 60)
-    
-    # 保存一份未压缩的XML用于调试
-    xml_debug_path = os.path.join(OUTPUT_DIR, "epg.xml")
-    with open(xml_debug_path, "wb") as f:
-        f.write(xml_str)
-    print(f"📁 调试文件（未压缩）：{xml_debug_path}")
-    print("=" * 60)
 
 # ====================== 入口 ======================
 if __name__ == "__main__":
