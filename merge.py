@@ -172,7 +172,7 @@ def crawl_weifang():
 
         # 抓取本周一~周日7天节目
         for ch_name, base_url, _ in WEIFANG_CHANNELS:
-            programs = get_channel_7days(ch_name, base_url)
+            programs = get_channel_7days(channel_name=ch_name, base_url=base_url)
             for start, stop, title in programs:
                 prog = etree.SubElement(root, "programme", start=start, stop=stop, channel=ch_name)
                 t = etree.SubElement(prog, "title")
@@ -279,22 +279,48 @@ def merge_all(weifang_gz_file):
     except:
         print("⚠️ 潍坊本地源读取失败，已跳过")
 
-    # ====================== 修改：名称相同，无论ID，只保留第一个 ======================
+    # ====================== 修复：名称相同，无论ID，只保留第一个 ======================
     seen_channel_names = set()
     unique_channels = []
+    channel_id_mapping = {}  # 存储频道名称到保留频道ID的映射
+    
     for ch in all_channels:
+        # 获取频道名称（不区分大小写）
         display_name_node = ch.find("display-name")
-        if display_name_node and display_name_node.text:
+        if display_name_node is not None and display_name_node.text:
             channel_name = display_name_node.text.strip()
-            # 只要名称没出现过，就保留；出现过就跳过，不管ID是否相同
-            if channel_name not in seen_channel_names:
-                seen_channel_names.add(channel_name)
+            channel_name_lower = channel_name.lower()  # 转换为小写进行不区分大小写的比较
+            
+            # 获取频道ID
+            channel_id = ch.get('id')
+            
+            if channel_name_lower not in seen_channel_names:
+                # 第一次出现这个频道名称，保留它
+                seen_channel_names.add(channel_name_lower)
                 unique_channels.append(ch)
+                
+                # 记录这个频道名称对应的ID（保留频道的ID）
+                if channel_id:
+                    channel_id_mapping[channel_name_lower] = channel_id
+            else:
+                # 重复的频道名称，跳过不保留
+                # 但需要记录这个频道的ID映射关系，以便后续更新节目
+                if channel_id and channel_name_lower in channel_id_mapping:
+                    # 记录重复频道的ID到保留频道ID的映射
+                    retained_id = channel_id_mapping[channel_name_lower]
+                    channel_id_mapping[channel_id] = retained_id
         else:
-            # 没有display-name的频道直接保留
+            # 没有display-name的频道，无法判断重复，直接保留
             unique_channels.append(ch)
-
-    # 生成最终XML（用去重后的频道 + 所有节目）
+    
+    # 修复节目中的频道ID引用
+    for prog in all_programs:
+        old_channel_id = prog.get('channel')
+        if old_channel_id and old_channel_id in channel_id_mapping:
+            # 更新为保留频道的ID
+            prog.set('channel', channel_id_mapping[old_channel_id])
+    
+    # 生成最终XML（用去重后的频道 + 更新后的节目）
     final_root = etree.Element("tv")
     for ch in unique_channels:
         final_root.append(ch)
@@ -302,10 +328,13 @@ def merge_all(weifang_gz_file):
         final_root.append(p)
 
     xml_str = etree.tostring(final_root, encoding="utf-8", pretty_print=True)
-    with gzip.open(os.path.join(OUTPUT_DIR, "epg.gz"), "wb") as f:
+    output_path = os.path.join(OUTPUT_DIR, "epg.gz")
+    with gzip.open(output_path, "wb") as f:
         f.write(xml_str)
-
+    
     print(f"✅ 最终输出：频道 {len(unique_channels)} 个 | 节目 {len(all_programs)} 个")
+    print(f"📁 输出文件：{output_path}")
+    print("=" * 60)
 
 # ====================== 入口 ======================
 if __name__ == "__main__":
@@ -314,4 +343,4 @@ if __name__ == "__main__":
         merge_all(wf_gz)
     except Exception as e:
         print(f"❌ 脚本执行失败: {e}")
-        raise  # 抛出异常，让CI步骤失败
+        raise
