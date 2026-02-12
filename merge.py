@@ -168,13 +168,14 @@ def merge_all(weifang_gz):
             if ok:
                 all_trees.append(t)
 
-    # 读取潍坊
+    # 读取潍坊（修复了 invalid mode: 'utf-8' 错误）
     try:
-        with gzip.open(weifang_gz,"rb") as f:
-            wf_tree = etree.fromstring(f.read())
+        with gzip.open(weifang_gz, "rb") as f:
+            wf_content = f.read()  # 以二进制读取
+            wf_tree = etree.fromstring(wf_content)  # 直接解析二进制
             all_trees.append(wf_tree)
-    except:
-        pass
+    except Exception as e:
+        print(f"⚠️ 潍坊文件读取失败: {e}")
 
     # ====================== 超级轻量去重（兼容所有播放器） ======================
     final = etree.Element("tv")
@@ -217,3 +218,5 @@ if __name__ == "__main__":
         print("🎉 全部完成，所有播放器通用！")
     except Exception as e:
         print(f"❌ 失败：{e}")
+        import traceback
+        traceback.print_exc()
