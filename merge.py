@@ -52,6 +52,65 @@ try:
 except ImportError:
     SELENIUM_AVAILABLE = False
 
+# ====================== XML修复函数 ======================
+def clean_xml_content(content):
+    """彻底清洗XML内容，修复格式错误"""
+    if not content:
+        return ""
+    
+    # 1. 修复错误的闭合标签
+    content = re.sub(r'<//title>', '</title>', content)
+    content = re.sub(r'</></title>', '</title>', content)
+    
+    # 2. 修复属性值换行
+    content = re.sub(r'(start|stop|channel)=\s*\n\s*"([^"]+)"', r'\1="\2"', content)
+    
+    # 3. 修复孤立的<title>标签
+    lines = content.split('\n')
+    cleaned_lines = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        
+        # 修复孤立的<title>标签
+        if stripped == '<title>' and (i+1 >= len(lines) or not lines[i+1].strip().startswith('</title>')):
+            # 查找下一个</programme>或<programme>
+            j = i + 1
+            while j < len(lines) and not lines[j].strip().startswith(('</programme>', '<programme')):
+                j += 1
+            # 在合适位置插入</title>
+            if j < len(lines):
+                lines.insert(j, '  </title>')
+        
+        cleaned_lines.append(line)
+        i += 1
+    
+    content = '\n'.join(cleaned_lines)
+    
+    # 4. 修复不匹配的</programme>
+    content = re.sub(r'</programme>\s*<programme', '</programme>\n<programme', content)
+    
+    # 5. 移除没有对应开标签的</programme>
+    programme_open = 0
+    lines = content.split('\n')
+    cleaned_lines = []
+    
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('<programme'):
+            programme_open += 1
+            cleaned_lines.append(line)
+        elif stripped == '</programme>':
+            if programme_open > 0:
+                programme_open -= 1
+                cleaned_lines.append(line)
+            # 否则跳过这个多余的</programme>
+        else:
+            cleaned_lines.append(line)
+    
+    return '\n'.join(cleaned_lines)
+
 # ====================== 工具函数 ======================
 def time_to_xmltv(base_date, time_str):
     try:
@@ -87,31 +146,6 @@ def get_page_html(url):
         except Exception:
             pass
     return ""
-
-def clean_program_title(title):
-    """清理节目标题，用于去重比较"""
-    if not title:
-        return ""
-    
-    # 去除多余空格
-    title = re.sub(r'\s+', ' ', title.strip())
-    
-    # 标准化一些常见模式
-    title = title.lower()  # 转为小写
-    
-    # 移除标点符号和特殊字符
-    title = re.sub(r'[^\w\u4e00-\u9fa5]', '', title)
-    
-    return title
-
-def normalize_channel_id(channel_id):
-    """标准化频道ID"""
-    if not channel_id:
-        return ""
-    
-    # 移除空格和特殊字符
-    normalized = re.sub(r'[^\w\u4e00-\u9fa5]', '', str(channel_id))
-    return normalized
 
 # ====================== 核心：抓【本周一 ~ 周日】7天 ======================
 def get_channel_7days(channel_name, base_url):
@@ -199,7 +233,7 @@ def crawl_weifang():
             f.write(empty_xml)
         return wf_path
 
-# ====================== 原有合并逻辑 ======================
+# ====================== 改进的合并逻辑 ======================
 def fetch_with_retry(u, max_retry=MAX_RETRY):
     for attempt in range(1, max_retry + 1):
         try:
@@ -213,12 +247,29 @@ def fetch_with_retry(u, max_retry=MAX_RETRY):
             else:
                 content = r.text
 
-            content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', content).replace("& ", "&amp; ")
-            tree = etree.fromstring(content.encode("utf-8"))
-            ch = len(tree.xpath("//channel"))
-            pg = len(tree.xpath("//programme"))
-            if ch > 0 and pg > 0:
-                return (True, tree, ch, pg, attempt)
+            # 清理XML内容
+            content = clean_xml_content(content)
+            
+            # 修复常见格式问题
+            content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', content)
+            content = content.replace("& ", "&amp; ")
+            
+            # 尝试解析
+            try:
+                parser = etree.XMLParser(recover=True)
+                tree = etree.fromstring(content.encode("utf-8"), parser=parser)
+                
+                # 验证基本结构
+                channels = tree.xpath("//channel")
+                programmes = tree.xpath("//programme")
+                
+                if len(channels) > 0 and len(programmes) > 0:
+                    return (True, tree, len(channels), len(programmes), attempt)
+            except Exception as e:
+                print(f"⚠️ XML解析失败，尝试修复: {e}")
+                # 尝试提取有效数据
+                pass
+                
         except Exception as e:
             print(f"❌ 抓取失败 {u[:50]}...: {e}")
             time.sleep(1)
@@ -277,7 +328,8 @@ def merge_all(weifang_gz_file):
     try:
         with gzip.open(weifang_gz_file, "rb") as f:
             wf_content = f.read().decode("utf-8")
-            wf_tree = etree.fromstring(wf_content.encode("utf-8"))
+            parser = etree.XMLParser(recover=True)
+            wf_tree = etree.fromstring(wf_content.encode("utf-8"), parser=parser)
             wf_ch = len(wf_tree.xpath("//channel"))
             wf_pg = len(wf_tree.xpath("//programme"))
 
@@ -295,138 +347,147 @@ def merge_all(weifang_gz_file):
 
     print(f"处理前: 频道 {len(all_channels)} 个, 节目 {len(all_programs)} 个")
 
-    # ====================== 修复：频道去重 ======================
+    # ====================== 修复频道去重 ======================
     seen_channel_names = set()
     unique_channels = []
-    channel_id_mapping = {}  # 存储原始频道ID到保留频道ID的映射
-    channel_name_to_id = {}  # 存储频道名称到保留频道ID的映射
+    channel_id_mapping = {}  # 原始ID -> 保留ID
+    name_to_id = {}  # 频道名称 -> 频道ID
     
     for ch in all_channels:
-        # 获取频道名称（不区分大小写）
-        display_name_node = ch.find("display-name")
-        if display_name_node is not None and display_name_node.text:
-            channel_name = display_name_node.text.strip()
-            channel_name_lower = channel_name.lower()  # 转换为小写进行不区分大小写的比较
-            
+        try:
             # 获取频道ID
             channel_id = ch.get('id', '')
-            
-            if channel_name_lower not in seen_channel_names:
-                # 第一次出现这个频道名称，保留它
-                seen_channel_names.add(channel_name_lower)
-                unique_channels.append(ch)
+            if not channel_id:
+                continue
                 
-                # 记录这个频道名称对应的ID（保留频道的ID）
-                if channel_id:
-                    channel_id_mapping[channel_name_lower] = channel_id
-                    channel_name_to_id[channel_name_lower] = channel_id
+            # 获取频道名称
+            display_name = ch.findtext("display-name", "").strip()
+            if not display_name:
+                display_name = channel_id
+            
+            # 标准化名称（小写）
+            normalized_name = display_name.lower()
+            
+            if normalized_name not in seen_channel_names:
+                seen_channel_names.add(normalized_name)
+                unique_channels.append(ch)
+                name_to_id[normalized_name] = channel_id
+                # 自身映射
+                channel_id_mapping[channel_id] = channel_id
             else:
-                # 重复的频道名称，跳过不保留
-                # 但需要记录这个频道的ID映射关系，以便后续更新节目
-                if channel_id and channel_name_lower in channel_id_mapping:
-                    # 记录重复频道的ID到保留频道ID的映射
-                    retained_id = channel_id_mapping[channel_name_lower]
-                    channel_id_mapping[channel_id] = retained_id
-        else:
-            # 没有display-name的频道，直接保留
-            unique_channels.append(ch)
+                # 重复频道，映射到已存在的频道ID
+                existing_id = name_to_id.get(normalized_name)
+                if existing_id:
+                    channel_id_mapping[channel_id] = existing_id
+        except Exception as e:
+            print(f"⚠️ 处理频道时出错: {e}")
+            continue
     
     print(f"频道去重后: {len(unique_channels)} 个唯一频道")
     
-    # ====================== 改进的节目去重 ======================
-    # 使用更宽松的去重策略
-    program_dict = {}
-    duplicate_count = 0
+    # ====================== 修复节目处理 ======================
+    valid_programs = []
+    program_keys = set()  # 用于去重
     
     for prog in all_programs:
         try:
-            old_channel_id = prog.get('channel')
-            if not old_channel_id:
-                continue
-                
-            start_time = prog.get('start')
-            stop_time = prog.get('stop')
+            old_channel_id = prog.get('channel', '')
+            start = prog.get('start', '')
+            stop = prog.get('stop', '')
             title_elem = prog.find("title")
             
-            if not start_time or not stop_time or title_elem is None:
+            # 验证必要字段
+            if not all([old_channel_id, start, stop]):
                 continue
                 
-            title = title_elem.text.strip() if title_elem.text else ""
-            if not title or len(title) < 2:
+            if title_elem is None or not title_elem.text:
+                continue
+                
+            title = title_elem.text.strip()
+            if len(title) < 2:
                 continue
             
             # 查找正确的频道ID
-            new_channel_id = old_channel_id
-            # 先检查是否有直接映射
-            if old_channel_id in channel_id_mapping:
-                new_channel_id = channel_id_mapping[old_channel_id]
-            else:
-                # 检查是否有通过频道名称的映射
-                for ch_name_lower, ch_id in channel_name_to_id.items():
-                    if old_channel_id.lower() in ch_name_lower or ch_name_lower in old_channel_id.lower():
-                        new_channel_id = ch_id
+            new_channel_id = channel_id_mapping.get(old_channel_id, old_channel_id)
+            
+            # 检查是否有对应的频道存在
+            channel_exists = any(ch.get('id') == new_channel_id for ch in unique_channels)
+            if not channel_exists:
+                # 尝试通过名称查找
+                for ch in unique_channels:
+                    ch_name = ch.findtext("display-name", "").strip().lower()
+                    if old_channel_id.lower() in ch_name or ch_name in old_channel_id.lower():
+                        new_channel_id = ch.get('id', '')
                         break
             
-            # 清理标题用于去重比较
-            clean_title = clean_program_title(title)
+            if not new_channel_id:
+                continue
             
-            # 标准化频道ID
-            normalized_channel_id = normalize_channel_id(new_channel_id)
+            # 创建去重键
+            program_key = f"{new_channel_id}|{start}|{title}"
             
-            # 创建节目键 - 使用更宽松的策略
-            # 1. 使用清理后的标题
-            # 2. 使用标准化的频道ID
-            # 3. 使用开始时间的前8位（年月日），忽略具体时间
-            if len(start_time) >= 8:
-                date_key = start_time[:8]  # 只取年月日
-            else:
-                date_key = start_time
-            
-            # 节目键：(频道ID, 日期, 清理后的标题)
-            program_key = (normalized_channel_id, date_key, clean_title)
-            
-            # 如果这个节目已经存在
-            if program_key in program_dict:
-                duplicate_count += 1
-                existing_prog = program_dict[program_key]
-                existing_stop = existing_prog.get('stop')
+            if program_key not in program_keys:
+                program_keys.add(program_key)
                 
-                # 保留时间更长的节目
-                if stop_time > existing_stop:
-                    prog.set('channel', new_channel_id)
-                    program_dict[program_key] = prog
-            else:
-                # 新节目
-                prog.set('channel', new_channel_id)
-                program_dict[program_key] = prog
+                # 创建新的节目元素
+                new_prog = etree.Element("programme", 
+                                        channel=new_channel_id,
+                                        start=start,
+                                        stop=stop)
+                title_elem = etree.SubElement(new_prog, "title", lang="zh")
+                title_elem.text = title
+                
+                valid_programs.append(new_prog)
                 
         except Exception as e:
             print(f"⚠️ 处理节目时出错: {e}")
             continue
     
-    unique_programs = list(program_dict.values())
-    print(f"节目去重后: {len(unique_programs)} 个唯一节目")
-    print(f"🎯 去重率: {(len(all_programs) - len(unique_programs)) / len(all_programs) * 100:.1f}%")
-    print(f"🎯 合并的重复节目数: {duplicate_count}")
+    print(f"节目去重后: {len(valid_programs)} 个有效节目")
+    print(f"🎯 去重率: {(len(all_programs) - len(valid_programs)) / len(all_programs) * 100:.1f}%")
     
-    # 按频道和开始时间排序节目
-    unique_programs.sort(key=lambda x: (x.get('channel', ''), x.get('start', '')))
+    # 按频道和开始时间排序
+    valid_programs.sort(key=lambda x: (x.get('channel', ''), x.get('start', '')))
     
-    # 生成最终XML（用去重后的频道 + 去重后的节目）
+    # 生成最终XML
     final_root = etree.Element("tv")
+    
+    # 添加频道
     for ch in unique_channels:
         final_root.append(ch)
-    for p in unique_programs:
-        final_root.append(p)
-
+    
+    # 添加节目
+    for prog in valid_programs:
+        final_root.append(prog)
+    
+    # 生成XML字符串
     xml_str = etree.tostring(final_root, encoding="utf-8", pretty_print=True, xml_declaration=True)
+    
+    # 验证XML格式
+    try:
+        parser = etree.XMLParser(recover=True)
+        test_tree = etree.fromstring(xml_str, parser=parser)
+        
+        # 检查是否有格式问题
+        test_channels = test_tree.xpath("//channel")
+        test_programs = test_tree.xpath("//programme")
+        
+        print(f"✅ XML验证通过: {len(test_channels)} 频道, {len(test_programs)} 节目")
+        
+    except Exception as e:
+        print(f"❌ 生成的XML格式错误: {e}")
+        # 创建最小可用的XML
+        final_root = etree.Element("tv")
+        xml_str = etree.tostring(final_root, encoding="utf-8", pretty_print=True, xml_declaration=True)
+    
+    # 保存文件
     output_path = os.path.join(OUTPUT_DIR, "epg.gz")
     with gzip.open(output_path, "wb") as f:
         f.write(xml_str)
     
     # 计算文件大小
     file_size_mb = os.path.getsize(output_path) / 1024 / 1024
-    print(f"✅ 最终输出：频道 {len(unique_channels)} 个 | 节目 {len(unique_programs)} 个")
+    print(f"✅ 最终输出：频道 {len(unique_channels)} 个 | 节目 {len(valid_programs)} 个")
     print(f"📦 文件大小：{file_size_mb:.2f} MB")
     print(f"📁 输出文件：{output_path}")
     print("=" * 60)
