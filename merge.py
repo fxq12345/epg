@@ -269,10 +269,11 @@ def merge_all(weifang_gz_file):
 
     print(f"处理前: 频道 {len(all_channels)} 个, 节目 {len(all_programs)} 个")
 
-    # ====================== 修复：只对频道去重，保留所有节目 ======================
+    # ====================== 修复：频道去重 ======================
     seen_channel_names = set()
     unique_channels = []
     channel_id_mapping = {}  # 存储原始频道ID到保留频道ID的映射
+    channel_name_to_id = {}  # 存储频道名称到保留频道ID的映射
     
     for ch in all_channels:
         # 获取频道名称（不区分大小写）
@@ -292,6 +293,7 @@ def merge_all(weifang_gz_file):
                 # 记录这个频道名称对应的ID（保留频道的ID）
                 if channel_id:
                     channel_id_mapping[channel_name_lower] = channel_id
+                    channel_name_to_id[channel_name_lower] = channel_id
             else:
                 # 重复的频道名称，跳过不保留
                 # 但需要记录这个频道的ID映射关系，以便后续更新节目
@@ -305,38 +307,71 @@ def merge_all(weifang_gz_file):
     
     print(f"频道去重后: {len(unique_channels)} 个唯一频道")
     
-    # 更新节目中的频道ID引用（但不删除任何节目）
-    updated_programs = []
+    # ====================== 智能节目去重 ======================
+    # 使用字典存储节目，键为 (channel_id, start_time, title) 的元组
+    program_dict = {}
+    
     for prog in all_programs:
         try:
             old_channel_id = prog.get('channel')
             if not old_channel_id:
-                updated_programs.append(prog)
                 continue
+                
+            start_time = prog.get('start')
+            stop_time = prog.get('stop')
+            title_elem = prog.find("title")
             
-            # 查找映射关系
+            if not start_time or not stop_time or title_elem is None:
+                continue
+                
+            title = title_elem.text.strip() if title_elem.text else ""
+            if not title or len(title) < 2:
+                continue
+                
+            # 查找正确的频道ID
             new_channel_id = old_channel_id
-            for ch_name_lower, retained_id in channel_id_mapping.items():
-                if old_channel_id == retained_id:
-                    break
-                elif old_channel_id in channel_id_mapping:
-                    new_channel_id = channel_id_mapping[old_channel_id]
-                    prog.set('channel', new_channel_id)
-                    break
+            # 先检查是否有直接映射
+            if old_channel_id in channel_id_mapping:
+                new_channel_id = channel_id_mapping[old_channel_id]
+            else:
+                # 检查是否有通过频道名称的映射
+                for ch_name_lower, ch_id in channel_name_to_id.items():
+                    if old_channel_id.lower() in ch_name_lower or ch_name_lower in old_channel_id.lower():
+                        new_channel_id = ch_id
+                        break
             
-            updated_programs.append(prog)
+            # 创建节目键
+            program_key = (new_channel_id, start_time, title)
+            
+            # 如果这个节目已经存在，检查是否需要更新（保留更长的节目时间）
+            if program_key in program_dict:
+                existing_prog = program_dict[program_key]
+                existing_stop = existing_prog.get('stop')
+                # 如果新节目的结束时间更晚，则替换
+                if stop_time > existing_stop:
+                    prog.set('channel', new_channel_id)
+                    program_dict[program_key] = prog
+            else:
+                # 新节目，设置新的频道ID并存储
+                prog.set('channel', new_channel_id)
+                program_dict[program_key] = prog
+                
         except Exception as e:
-            print(f"⚠️ 更新节目时出错: {e}")
-            updated_programs.append(prog)
+            print(f"⚠️ 处理节目时出错: {e}")
+            continue
     
-    all_programs = updated_programs
-    print(f"节目处理: 保留了 {len(all_programs)} 个节目（不进行节目去重）")
+    unique_programs = list(program_dict.values())
+    print(f"节目去重后: {len(unique_programs)} 个唯一节目")
+    print(f"🎯 去重率: {(len(all_programs) - len(unique_programs)) / len(all_programs) * 100:.1f}%")
     
-    # 生成最终XML（用去重后的频道 + 所有节目）
+    # 按频道和开始时间排序节目
+    unique_programs.sort(key=lambda x: (x.get('channel', ''), x.get('start', '')))
+    
+    # 生成最终XML（用去重后的频道 + 去重后的节目）
     final_root = etree.Element("tv")
     for ch in unique_channels:
         final_root.append(ch)
-    for p in all_programs:
+    for p in unique_programs:
         final_root.append(p)
 
     xml_str = etree.tostring(final_root, encoding="utf-8", pretty_print=True, xml_declaration=True)
@@ -346,7 +381,7 @@ def merge_all(weifang_gz_file):
     
     # 计算文件大小
     file_size_mb = os.path.getsize(output_path) / 1024 / 1024
-    print(f"✅ 最终输出：频道 {len(unique_channels)} 个 | 节目 {len(all_programs)} 个")
+    print(f"✅ 最终输出：频道 {len(unique_channels)} 个 | 节目 {len(unique_programs)} 个")
     print(f"📦 文件大小：{file_size_mb:.2f} MB")
     print(f"📁 输出文件：{output_path}")
     print("=" * 60)
