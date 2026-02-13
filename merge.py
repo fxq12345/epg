@@ -2,7 +2,7 @@ import os
 import gzip
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
 import requests.adapters
@@ -14,7 +14,6 @@ MAX_RETRY = 3
 TIMEOUT = 30
 
 def create_session():
-    """创建带重试的会话，提升网络稳定性"""
     session = requests.Session()
     retry_strategy = Retry(
         total=3,
@@ -46,7 +45,6 @@ def fetch_with_retry(url):
             resp.raise_for_status()
             content = resp.content
             
-            # 智能检测并解压 gzip
             try_gzip = False
             if url.endswith(".gz"):
                 try_gzip = True
@@ -62,7 +60,6 @@ def fetch_with_retry(url):
                 except (gzip.BadGzipFile, OSError):
                     print(f"  警告：标记为gzip但实际不是，按普通XML处理")
             
-            # 兼容多种编码
             try:
                 xml_str = content.decode('utf-8')
             except UnicodeDecodeError:
@@ -93,14 +90,14 @@ def merge_all(local_file):
     all_channels = []
     all_programs = []
 
-    # 1. 读取网络源（config.txt）
+    # 读取并去重URL
     with open("config.txt", "r", encoding="utf-8") as f:
-        urls = [line.strip() for line in f if line.strip().startswith("http")]
+        urls = list({line.strip() for line in f if line.strip().startswith("http")})
 
     print(f"📥 网络源共 {len(urls)} 个")
 
     xml_trees = []
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:
         tasks = {executor.submit(fetch_with_retry, u): u for u in urls}
         for t in tasks:
             ok, tree, ch, pg = t.result()
@@ -140,7 +137,7 @@ def merge_all(local_file):
                 continue
             all_programs.append(p)
 
-    # 2. 合并潍坊本地源（失败自动跳过）
+    # 合并潍坊本地源
     if os.path.exists(local_file):
         try:
             with gzip.open(local_file, "rb") as f:
@@ -170,27 +167,63 @@ def merge_all(local_file):
     else:
         print(f"⚠️ 未找到潍坊源文件 {local_file}，已跳过")
 
-    # 3. 节目去重
+    # 频道排序：山东 > 潍坊 > CCTV > 卫视 > 其他
+    def channel_sort_key(channel_elem):
+        name = channel_elem.get("id", "").strip()
+        if "山东" in name:
+            return 0, name
+        elif "潍坊" in name:
+            return 1, name
+        elif "CCTV" in name:
+            return 2, name
+        elif "卫视" in name:
+            return 3, name
+        else:
+            return 99, name
+
+    all_channels.sort(key=channel_sort_key)
+
+    # 节目去重 + 过滤时间范围
     print(f"原始节目数: {len(all_programs)}")
     unique = []
     seen = set()
+
+    now = datetime.now()
+    start_cutoff = now - timedelta(days=2)
+    end_cutoff = now + timedelta(days=8)
+
     for p in all_programs:
         try:
             key = p.get("channel") + "|" + p.get("start")
-            if key not in seen:
-                seen.add(key)
-                unique.append(p)
+            if key in seen:
+                continue
+
+            # 简单过滤无效节目
+            title_elem = p.find("title")
+            title = title_elem.text.strip() if (title_elem is not None and title_elem.text) else ""
+            if not title or len(title) < 2:
+                continue
+
+            # 过滤太老/太远的节目
+            start_str = p.get("start", "")[:12]
+            p_start = datetime.strptime(start_str, "%Y%m%d%H%M")
+            if not (start_cutoff <= p_start <= end_cutoff):
+                continue
+
+            seen.add(key)
+            unique.append(p)
         except:
             continue
+
     unique.sort(key=lambda x: (x.get("channel", ""), x.get("start", "")))
     print(f"去重后节目: {len(unique)}")
 
-    # 4. 输出到 output/epg.gz
+    # 输出
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     out_path = os.path.join(OUTPUT_DIR, "epg.gz")
 
     root = etree.Element("tv")
-    root.insert(0, etree.Comment(f"Built {datetime.now()} | 智能gzip解压"))
+    root.insert(0, etree.Comment(f"Built {datetime.now()} | 智能合并+排序"))
     for ch in all_channels:
         root.append(ch)
     for p in unique:
@@ -202,7 +235,10 @@ def merge_all(local_file):
 
     size = os.path.getsize(out_path) / 1024 / 1024
     print("="*60)
-    print(f"✅ 生成完成！频道={len(all_channels)} 节目={len(unique)} | {size:.2f}MB")
+    print(f"✅ 最终生成完成！")
+    print(f"📺 频道总数：{len(all_channels)}")
+    print(f"📅 有效节目：{len(unique)}")
+    print(f"📦 文件大小：{size:.2f}MB")
     print("="*60)
 
 if __name__ == "__main__":
