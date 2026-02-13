@@ -7,261 +7,159 @@ from lxml import etree
 
 # 全局配置
 OUTPUT_DIR = "output"
-MAX_RETRY = 3
-TIMEOUT = 30
+MAX_RETRY = 2
+TIMEOUT = 15
 
 def fetch_with_retry(url):
-    """带重试的URL抓取函数"""
     retry_cnt = 0
     while retry_cnt < MAX_RETRY:
         retry_cnt += 1
         try:
-            print(f"🔄 尝试抓取: {url} (第{retry_cnt}次)")
-            response = requests.get(url, timeout=TIMEOUT)
-            response.raise_for_status()
-            content = response.content
-            tree = etree.fromstring(content)
-            channels = tree.findall(".//channel")
-            programs = tree.findall(".//programme")
-            print(f"✅ 抓取成功: {url} | 频道 {len(channels)} | 节目 {len(programs)}")
-            return True, tree, len(channels), len(programs), retry_cnt
+            print(f"🔄 抓取: {url[:50]}... 第{retry_cnt}次")
+            resp = requests.get(url, timeout=TIMEOUT)
+            resp.raise_for_status()
+            tree = etree.fromstring(resp.content)
+            ch = len(tree.findall(".//channel"))
+            pg = len(tree.findall(".//programme"))
+            print(f"✅ 成功: 频道 {ch} 节目 {pg}")
+            return True, tree, ch, pg, retry_cnt
         except Exception as e:
-            print(f"❌ 抓取失败: {url} | 错误: {e}")
-            if retry_cnt >= MAX_RETRY:
-                return False, None, 0, 0, retry_cnt
+            print(f"❌ 失败: {str(e)[:50]}")
+    return False, None, 0, 0, retry_cnt
 
-# ====================== 修复版本：统一ID为频道名称，解决潍坊台乱码问题 ======================
 def merge_all(weifang_gz_file):
-    # 强制刷新缓冲区，确保日志实时输出
     import sys
-    def print_flush(*args, **kwargs):
-        print(*args, **kwargs)
+    def p(*args):
+        print(*args)
         sys.stdout.flush()
-        sys.stderr.flush()
 
-    print_flush("🔍 调试：开始 merge_all 函数（已修复ID统一问题）")
-
-    # 修复：文件不存在时不退出，改为警告并继续执行
-    if os.path.exists(weifang_gz_file):
-        file_size = os.path.getsize(weifang_gz_file)
-        print_flush(f"🔍 调试：潍坊文件存在，大小: {file_size} bytes")
-    else:
-        print_flush(f"⚠️ 调试：潍坊文件不存在: {weifang_gz_file}，将跳过本地源，仅合并网络源")
-        # 不再 return，继续执行后续逻辑
+    p("🔰 EPG 合并脚本开始运行")
 
     all_channels = []
     all_programs = []
-    total_ch = 0
-    total_pg = 0
-    success_cnt = 0
-    fail_cnt = 0
-
-    if not os.path.exists("config.txt"):
-        print_flush("❌ 未找到 config.txt 文件")
-        empty_output = os.path.join(OUTPUT_DIR, "epg.gz")
-        empty_xml = b'<?xml version="1.0" encoding="utf-8"?>\n<tv></tv>'
-        with gzip.open(empty_output, "wb") as f:
-            f.write(empty_xml)
-        print_flush(f"⚠️ 已创建空的EPG文件: {empty_output}")
-        return
-
-    # 已修复：config.txt.txt → config.txt
-    with open("config.txt", "r", encoding="utf-8") as f:
-        urls = []
-        for line_num, line in enumerate(f, 1):
-            line = line.strip()
-            if line and line.startswith("http"):
-                urls.append(line)
-                print_flush(f"🔍 配置第{line_num}行: {line[:60]}...")
-            elif line:
-                print_flush(f"🔍 配置第{line_num}行(跳过): {line[:60]}...")
-
-    if not urls:
-        print_flush("❌ config.txt 中没有找到有效的URL")
-        empty_output = os.path.join(OUTPUT_DIR, "epg.gz")
-        empty_xml = b'<?xml version="1.0" encoding="utf-8"?>\n<tv></tv>'
-        with gzip.open(empty_output, "wb") as f:
-            f.write(empty_xml)
-        print_flush(f"⚠️ 已创建空的EPG文件: {empty_output}")
-        return
-
-    print_flush("=" * 60)
-    print_flush(f"🔍 调试：找到 {len(urls)} 个URL")
-    print_flush("EPG 源抓取统计（失败自动重试）")
-    print_flush("=" * 60)
-
     xml_trees = []
 
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        future_map = {executor.submit(fetch_with_retry, u): u for u in urls}
-        for fut in future_map:
-            u = future_map[fut]
-            try:
-                ok, tree, ch, pg, retry_cnt = fut.result(timeout=30)
-                if ok:
-                    success_cnt += 1
-                    total_ch += ch
-                    total_pg += pg
-                    log_retry = f"[重试{retry_cnt-1}次]" if retry_cnt > 1 else ""
-                    print_flush(f"✅ {u[:55]}... {log_retry}成功 | 频道 {ch:>4} | 节目 {pg:>6}")
-                    if tree is not None:
-                        xml_trees.append(tree)
-                else:
-                    fail_cnt += 1
-                    print_flush(f"❌ {u[:55]}... 抓取失败")
-            except Exception as e:
-                fail_cnt += 1
-                print_flush(f"❌ {u[:55]}... 执行异常: {e}")
-
-    print_flush(f"🔍 调试：抓取完成，成功 {success_cnt} 个，失败 {fail_cnt} 个")
-    print_flush(f"🔍 调试：获取到 {len(xml_trees)} 个XML树")
-
-    # ========== 全局频道映射表：数字ID → 频道名 ==========
-    global_channel_map = {}  # key: old_id, value: 频道名称
-
-    # 先收集所有频道
-    for tree in xml_trees:
-        for ch in tree.findall(".//channel"):
-            ch_id = ch.get("id", "").strip()
-            dn_elem = ch.find("display-name")
-            ch_name = dn_elem.text.strip() if (dn_elem is not None and dn_elem.text) else ch_id
-            if ch_id and ch_id not in global_channel_map:
-                global_channel_map[ch_id] = ch_name
-
-    # ========== 统一频道：用【频道名称】作为唯一ID ==========
-    unique_channel_ids = set()
-
-    for tree in xml_trees:
-        for ch in tree.findall(".//channel"):
-            old_id = ch.get("id", "").strip()
-            name = global_channel_map.get(old_id, old_id)
-            if name not in unique_channel_ids:
-                unique_channel_ids.add(name)
-                ch.set("id", name)
-                all_channels.append(ch)
-
-    # ========== 统一节目：把 channel="数字" 改成 channel="名称" ==========
-    for tree in xml_trees:
-        for prog in tree.findall(".//programme"):
-            old_ch_id = prog.get("channel", "").strip()
-            new_ch_id = global_channel_map.get(old_ch_id, old_ch_id)
-            if new_ch_id:
-                prog.set("channel", new_ch_id)
-            # 简单过滤
-            title_elem = prog.find("title")
-            if not title_elem or not title_elem.text or len(title_elem.text.strip()) < 2:
-                continue
-            all_programs.append(prog)
-
-    # ========== 处理潍坊本地源（同样统一ID） ==========
-    # 只有文件存在时才处理
-    if os.path.exists(weifang_gz_file):
-        try:
-            print_flush(f"🔍 调试：开始处理潍坊本地源: {weifang_gz_file}")
-            with gzip.open(weifang_gz_file, "rb") as f:
-                wf_content = f.read().decode("utf-8")
-                wf_tree = etree.fromstring(wf_content.encode("utf-8"))
-
-            # 收集潍坊频道
-            wf_channel_map = {}
-            for ch in wf_tree.findall(".//channel"):
-                ch_id = ch.get("id", "").strip()
-                dn_elem = ch.find("display-name")
-                ch_name = dn_elem.text.strip() if (dn_elem is not None and dn_elem.text) else ch_id
-                wf_channel_map[ch_id] = ch_name
-                if ch_name not in unique_channel_ids:
-                    unique_channel_ids.add(ch_name)
-                    ch.set("id", ch_name)
-                    all_channels.append(ch)
-
-            # 潍坊节目也统一ID
-            for prog in wf_tree.findall(".//programme"):
-                old_ch = prog.get("channel", "").strip()
-                new_ch = wf_channel_map.get(old_ch, old_ch)
-                if new_ch:
-                    prog.set("channel", new_ch)
-                title_elem = prog.find("title")
-                if not title_elem or not title_elem.text or len(title_elem.text.strip()) < 2:
-                    continue
-                all_programs.append(prog)
-
-            print_flush(f"🔍 调试：潍坊源处理完成")
-        except Exception as e:
-            print_flush(f"⚠️ 潍坊本地源读取失败: {e}")
-    else:
-        print_flush(f"⚠️ 跳过潍坊本地源处理，因为文件不存在: {weifang_gz_file}")
-
-    # ========== 节目去重 ==========
-    print_flush(f"处理前: 频道 {len(all_channels)} 个, 节目 {len(all_programs)} 个")
-
-    if len(all_channels) == 0 and len(all_programs) == 0:
-        print_flush("⚠️ 没有数据，生成空文件")
-        final_root = etree.Element("tv")
-        xml_str = etree.tostring(final_root, encoding="utf-8", pretty_print=True, xml_declaration=True)
-        output_path = os.path.join(OUTPUT_DIR, "epg.gz")
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        with gzip.open(output_path, "wb") as f:
-            f.write(xml_str)
+    # 读取 config.txt
+    if not os.path.exists("config.txt"):
+        p("❌ 找不到 config.txt")
+        return
+    with open("config.txt", "r", encoding="utf-8") as f:
+        urls = [l.strip() for l in f if l.strip().startswith("http")]
+    if not urls:
+        p("❌ config.txt 无有效URL")
         return
 
-    unique_programs = []
-    seen = set()
+    p(f"📥 共 {len(urls)} 个源")
 
+    # 抓取
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        tasks = {executor.submit(fetch_with_retry, u): u for u in urls}
+        for t in tasks:
+            ok, tree, ch, pg, _ = t.result()
+            if ok and tree is not None:
+                xml_trees.append(tree)
+
+    p(f"📥 成功加载 {len(xml_trees)} 个XML")
+
+    # 统一频道ID = 频道名称
+    chan_map = {}
+    for tree in xml_trees:
+        for c in tree.findall(".//channel"):
+            cid = c.get("id", "").strip()
+            dn = c.find("display-name")
+            name = dn.text.strip() if (dn is not None and dn.text) else cid
+            if cid and name and cid not in chan_map:
+                chan_map[cid] = name
+
+    # 收集频道（去重）
+    exist_names = set()
+    for tree in xml_trees:
+        for c in tree.findall(".//channel"):
+            old_id = c.get("id", "").strip()
+            name = chan_map.get(old_id, old_id)
+            if name and name not in exist_names:
+                exist_names.add(name)
+                c.set("id", name)
+                all_channels.append(c)
+
+    # 收集节目
+    for tree in xml_trees:
+        for p in tree.findall(".//programme"):
+            old_c = p.get("channel", "").strip()
+            new_c = chan_map.get(old_c, old_c)
+            if new_c:
+                p.set("channel", new_c)
+            tit = p.find("title")
+            if tit is None or not tit.text or len(tit.text.strip()) < 2:
+                continue
+            all_programs.append(p)
+
+    # 本地潍坊源（可选）
+    if os.path.exists(weifang_gz_file):
+        try:
+            with gzip.open(weifang_gz_file, "rb") as f:
+                wf_tree = etree.fromstring(f.read())
+            wf_chan = {}
+            for c in wf_tree.findall(".//channel"):
+                cid = c.get("id", "").strip()
+                dn = c.find("display-name")
+                name = dn.text.strip() if (dn is not None and dn.text) else cid
+                wf_chan[cid] = name
+                if name and name not in exist_names:
+                    exist_names.add(name)
+                    c.set("id", name)
+                    all_channels.append(c)
+            for p in wf_tree.findall(".//programme"):
+                old_c = p.get("channel", "").strip()
+                new_c = wf_chan.get(old_c, old_c)
+                if new_c:
+                    p.set("channel", new_c)
+                tit = p.find("title")
+                if tit is None or not tit.text or len(tit.text.strip()) < 2:
+                    continue
+                all_programs.append(p)
+            p("✅ 潍坊本地源已合并")
+        except:
+            p("⚠️ 潍坊源读取失败，跳过")
+
+    # 节目去重
+    p(f"原始节目数: {len(all_programs)}")
+    unique = []
+    seen = set()
     for p in all_programs:
         try:
-            ch = p.get("channel", "")
-            st = p.get("start", "")
-            title = p.find("title").text.strip() if (p.find("title") is not None and p.find("title").text) else ""
-            if not ch or not st or not title:
-                continue
-            key = f"{ch}|{st}|{title}"
+            c = p.get("channel", "")
+            s = p.get("start", "")
+            t = p.find("title").text.strip()
+            key = f"{c}|{s}|{t}"
             if key not in seen:
                 seen.add(key)
-                unique_programs.append(p)
+                unique.append(p)
         except:
             continue
+    unique.sort(key=lambda x: (x.get("channel", ""), x.get("start", "")))
+    p(f"去重后节目: {len(unique)}")
 
-    unique_programs.sort(key=lambda x: (x.get("channel", ""), x.get("start", "")))
-
-    # ========== 输出最终文件（添加时间戳，确保每次生成新文件） ==========
-    final_root = etree.Element("tv")
-    # 添加时间戳注释，强制文件内容变化
-    final_root.insert(0, etree.Comment(f"Generated at {datetime.now().isoformat()}"))
-    for ch in all_channels:
-        final_root.append(ch)
-    for p in unique_programs:
-        final_root.append(p)
-
+    # 输出
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    output_path = os.path.join(OUTPUT_DIR, "epg.gz")
-    xml_str = etree.tostring(final_root, encoding="utf-8", pretty_print=True, xml_declaration=True)
-    with gzip.open(output_path, "wb") as f:
-        f.write(xml_str)
+    out = os.path.join(OUTPUT_DIR, "epg.gz")
 
-    file_size_mb = os.path.getsize(output_path) / 1024 / 1024
-    print_flush("=" * 60)
-    print_flush(f"✅ 合并完成！频道：{len(all_channels)} ｜ 节目：{len(unique_programs)}")
-    print_flush(f"📦 文件：{output_path} ({file_size_mb:.2f}MB)")
-    print_flush("🎉 潍坊台 + 网络源 已完全统一格式！")
+    root = etree.Element("tv")
+    root.insert(0, etree.Comment(f"Built {datetime.now()}"))
+    for c in all_channels:
+        root.append(c)
+    for p in unique:
+        root.append(p)
 
-# ====================== 主程序入口 ======================
+    xml = etree.tostring(root, encoding="utf-8", pretty_print=True, xml_declaration=True)
+    with gzip.open(out, "wb") as f:
+        f.write(xml)
+
+    size = os.path.getsize(out) / 1024 / 1024
+    p("="*50)
+    p(f"✅ 完成！频道={len(all_channels)} 节目={len(unique)}")
+    p(f"📦 文件: {out}  {size:.2f}MB")
+    p("="*50)
+
 if __name__ == "__main__":
-    import sys
-    print("=== 开始执行 EPG 合并脚本 ===", flush=True)
-    print(f"Python 版本: {sys.version}", flush=True)
-    
-    # 潍坊本地源文件路径，根据你的实际情况修改
-    WEIFANG_FILE = "weifang_epg.gz"
-    
-    # 执行合并
-    merge_all(WEIFANG_FILE)
-    
-    # 强制检查生成的文件
-    output_path = os.path.join("output", "epg.gz")
-    if os.path.exists(output_path):
-        file_size = os.path.getsize(output_path)
-        print(f"✅ 生成的文件大小: {file_size} 字节", flush=True)
-    else:
-        print("❌ 未生成 output/epg.gz 文件", flush=True)
-    
-    print("=== 脚本执行结束 ===", flush=True)
+    merge_all("weifang_epg.gz")
