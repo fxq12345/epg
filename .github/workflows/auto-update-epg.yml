@@ -2,7 +2,7 @@ name: EPG自动更新
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 16 * * *'
+    - cron: '30 16 * *'
 
 jobs:
   build:
@@ -18,7 +18,7 @@ jobs:
       - name: 同步远程最新代码
         run: |
           git fetch --all
-          git reset --hard origin/master  # 强制同步远程最新代码，避免冲突
+          git reset --hard origin/master
 
       - name: 配置Python环境
         uses: actions/setup-python@v5
@@ -34,15 +34,17 @@ jobs:
       - name: 运行合并脚本生成EPG文件
         run: python merge.py
 
-      - name: 提交并推送GitHub
+      - name: 复制文件到根目录并提交
         run: |
+          cp output/epg.gz epg.gz
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git add -f output/
-          # 检查是否有变更，如果没有就退出
+          git add epg.gz
+
           if git diff --staged --quiet; then
             echo "✅ 没有文件变更，无需提交"
             exit 0
           fi
+
           git commit -m "✅ EPG自动更新 $(date +'%Y-%m-%d %H:%M:%S')"
           git push -f origin master
