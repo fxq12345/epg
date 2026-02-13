@@ -1,3 +1,35 @@
+import os
+import gzip
+import requests
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
+from lxml import etree
+
+# 全局配置
+OUTPUT_DIR = "output"
+MAX_RETRY = 3
+TIMEOUT = 30
+
+def fetch_with_retry(url):
+    """带重试的URL抓取函数"""
+    retry_cnt = 0
+    while retry_cnt < MAX_RETRY:
+        retry_cnt += 1
+        try:
+            print(f"🔄 尝试抓取: {url} (第{retry_cnt}次)")
+            response = requests.get(url, timeout=TIMEOUT)
+            response.raise_for_status()
+            content = response.content
+            tree = etree.fromstring(content)
+            channels = tree.findall(".//channel")
+            programs = tree.findall(".//programme")
+            print(f"✅ 抓取成功: {url} | 频道 {len(channels)} | 节目 {len(programs)}")
+            return True, tree, len(channels), len(programs), retry_cnt
+        except Exception as e:
+            print(f"❌ 抓取失败: {url} | 错误: {e}")
+            if retry_cnt >= MAX_RETRY:
+                return False, None, 0, 0, retry_cnt
+
 # ====================== 修复版本：统一ID为频道名称，解决潍坊台乱码问题 ======================
 def merge_all(weifang_gz_file):
     # 强制刷新缓冲区，确保日志实时输出
@@ -186,8 +218,10 @@ def merge_all(weifang_gz_file):
 
     unique_programs.sort(key=lambda x: (x.get("channel", ""), x.get("start", "")))
 
-    # ========== 输出最终文件 ==========
+    # ========== 输出最终文件（添加时间戳，确保每次生成新文件） ==========
     final_root = etree.Element("tv")
+    # 添加时间戳注释，强制文件内容变化
+    final_root.insert(0, etree.Comment(f"Generated at {datetime.now().isoformat()}"))
     for ch in all_channels:
         final_root.append(ch)
     for p in unique_programs:
@@ -204,3 +238,9 @@ def merge_all(weifang_gz_file):
     print_flush(f"✅ 合并完成！频道：{len(all_channels)} ｜ 节目：{len(unique_programs)}")
     print_flush(f"📦 文件：{output_path} ({file_size_mb:.2f}MB)")
     print_flush("🎉 潍坊台 + 网络源 已完全统一格式！")
+
+# ====================== 主程序入口 ======================
+if __name__ == "__main__":
+    # 潍坊本地源文件路径，根据你的实际情况修改
+    WEIFANG_FILE = "weifang_epg.gz"
+    merge_all(WEIFANG_FILE)
