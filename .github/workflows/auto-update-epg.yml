@@ -22,7 +22,7 @@ jobs:
       - name: 安装依赖
         run: pip install requests lxml beautifulsoup4
 
-      - name: 抓取潍坊4频道
+      - name: 抓取潍坊4频道（生成 weifang.gz）
         run: python weifang_crawl.py
 
       - name: 合并生成 output/epg.gz
@@ -32,6 +32,6 @@ jobs:
         run: |
           git config --global user.name "Actions"
           git config --global user.email "actions@github.com"
-          git add output/epg.gz
+          git add output/epg.gz weifang.gz
           git commit -m "更新 EPG $(date +'%Y-%m-%d %H:%M')"
           git push -f origin master
