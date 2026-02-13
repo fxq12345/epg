@@ -1,35 +1,3 @@
-import os
-import gzip
-import requests
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
-from lxml import etree
-
-# 全局配置
-OUTPUT_DIR = "output"
-MAX_RETRY = 3
-TIMEOUT = 30
-
-def fetch_with_retry(url):
-    """带重试的URL抓取函数"""
-    retry_cnt = 0
-    while retry_cnt < MAX_RETRY:
-        retry_cnt += 1
-        try:
-            print(f"🔄 尝试抓取: {url} (第{retry_cnt}次)")
-            response = requests.get(url, timeout=TIMEOUT)
-            response.raise_for_status()
-            content = response.content
-            tree = etree.fromstring(content)
-            channels = tree.findall(".//channel")
-            programs = tree.findall(".//programme")
-            print(f"✅ 抓取成功: {url} | 频道 {len(channels)} | 节目 {len(programs)}")
-            return True, tree, len(channels), len(programs), retry_cnt
-        except Exception as e:
-            print(f"❌ 抓取失败: {url} | 错误: {e}")
-            if retry_cnt >= MAX_RETRY:
-                return False, None, 0, 0, retry_cnt
-
 # ====================== 修复版本：统一ID为频道名称，解决潍坊台乱码问题 ======================
 def merge_all(weifang_gz_file):
     # 强制刷新缓冲区，确保日志实时输出
@@ -41,12 +9,13 @@ def merge_all(weifang_gz_file):
 
     print_flush("🔍 调试：开始 merge_all 函数（已修复ID统一问题）")
 
+    # 修复：文件不存在时不退出，改为警告并继续执行
     if os.path.exists(weifang_gz_file):
         file_size = os.path.getsize(weifang_gz_file)
         print_flush(f"🔍 调试：潍坊文件存在，大小: {file_size} bytes")
     else:
-        print_flush(f"❌ 调试：潍坊文件不存在: {weifang_gz_file}")
-        return
+        print_flush(f"⚠️ 调试：潍坊文件不存在: {weifang_gz_file}，将跳过本地源，仅合并网络源")
+        # 不再 return，继续执行后续逻辑
 
     all_channels = []
     all_programs = []
@@ -153,38 +122,42 @@ def merge_all(weifang_gz_file):
             all_programs.append(prog)
 
     # ========== 处理潍坊本地源（同样统一ID） ==========
-    try:
-        print_flush(f"🔍 调试：开始处理潍坊本地源: {weifang_gz_file}")
-        with gzip.open(weifang_gz_file, "rb") as f:
-            wf_content = f.read().decode("utf-8")
-            wf_tree = etree.fromstring(wf_content.encode("utf-8"))
+    # 只有文件存在时才处理
+    if os.path.exists(weifang_gz_file):
+        try:
+            print_flush(f"🔍 调试：开始处理潍坊本地源: {weifang_gz_file}")
+            with gzip.open(weifang_gz_file, "rb") as f:
+                wf_content = f.read().decode("utf-8")
+                wf_tree = etree.fromstring(wf_content.encode("utf-8"))
 
-        # 收集潍坊频道
-        wf_channel_map = {}
-        for ch in wf_tree.findall(".//channel"):
-            ch_id = ch.get("id", "").strip()
-            dn_elem = ch.find("display-name")
-            ch_name = dn_elem.text.strip() if (dn_elem is not None and dn_elem.text) else ch_id
-            wf_channel_map[ch_id] = ch_name
-            if ch_name not in unique_channel_ids:
-                unique_channel_ids.add(ch_name)
-                ch.set("id", ch_name)
-                all_channels.append(ch)
+            # 收集潍坊频道
+            wf_channel_map = {}
+            for ch in wf_tree.findall(".//channel"):
+                ch_id = ch.get("id", "").strip()
+                dn_elem = ch.find("display-name")
+                ch_name = dn_elem.text.strip() if (dn_elem is not None and dn_elem.text) else ch_id
+                wf_channel_map[ch_id] = ch_name
+                if ch_name not in unique_channel_ids:
+                    unique_channel_ids.add(ch_name)
+                    ch.set("id", ch_name)
+                    all_channels.append(ch)
 
-        # 潍坊节目也统一ID
-        for prog in wf_tree.findall(".//programme"):
-            old_ch = prog.get("channel", "").strip()
-            new_ch = wf_channel_map.get(old_ch, old_ch)
-            if new_ch:
-                prog.set("channel", new_ch)
-            title_elem = prog.find("title")
-            if not title_elem or not title_elem.text or len(title_elem.text.strip()) < 2:
-                continue
-            all_programs.append(prog)
+            # 潍坊节目也统一ID
+            for prog in wf_tree.findall(".//programme"):
+                old_ch = prog.get("channel", "").strip()
+                new_ch = wf_channel_map.get(old_ch, old_ch)
+                if new_ch:
+                    prog.set("channel", new_ch)
+                title_elem = prog.find("title")
+                if not title_elem or not title_elem.text or len(title_elem.text.strip()) < 2:
+                    continue
+                all_programs.append(prog)
 
-        print_flush(f"🔍 调试：潍坊源处理完成")
-    except Exception as e:
-        print_flush(f"⚠️ 潍坊本地源读取失败: {e}")
+            print_flush(f"🔍 调试：潍坊源处理完成")
+        except Exception as e:
+            print_flush(f"⚠️ 潍坊本地源读取失败: {e}")
+    else:
+        print_flush(f"⚠️ 跳过潍坊本地源处理，因为文件不存在: {weifang_gz_file}")
 
     # ========== 节目去重 ==========
     print_flush(f"处理前: 频道 {len(all_channels)} 个, 节目 {len(all_programs)} 个")
@@ -238,9 +211,3 @@ def merge_all(weifang_gz_file):
     print_flush(f"✅ 合并完成！频道：{len(all_channels)} ｜ 节目：{len(unique_programs)}")
     print_flush(f"📦 文件：{output_path} ({file_size_mb:.2f}MB)")
     print_flush("🎉 潍坊台 + 网络源 已完全统一格式！")
-
-# ====================== 主程序入口 ======================
-if __name__ == "__main__":
-    # 潍坊本地源文件路径，根据你的实际情况修改
-    WEIFANG_FILE = "weifang_epg.gz"
-    merge_all(WEIFANG_FILE)
