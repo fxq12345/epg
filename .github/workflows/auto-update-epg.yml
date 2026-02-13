@@ -2,7 +2,7 @@ name: EPG自动更新
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 16 * * *'  # 修复：cron 表达式必须是 5 段，最后加一个 *
+    - cron: '30 16 * * *'  # 每天 16:30 UTC 运行
 
 jobs:
   build:
@@ -39,12 +39,16 @@ jobs:
           cp output/epg.gz epg.gz
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git add epg.gz
-
+          
+          # 强制添加文件，即使内容没有变化
+          git add -f epg.gz
+          
+          # 检查是否有变更，如果没有就创建一个空提交
           if git diff --staged --quiet; then
-            echo "✅ 没有文件变更，无需提交"
-            exit 0
+            echo "⚠️ 没有文件变更，创建空提交以触发更新"
+            git commit --allow-empty -m "✅ EPG自动更新 (空提交) $(date +'%Y-%m-%d %H:%M:%S')"
+          else
+            git commit -m "✅ EPG自动更新 $(date +'%Y-%m-%d %H:%M:%S')"
           fi
-
-          git commit -m "✅ EPG自动更新 $(date +'%Y-%m-%d %H:%M:%S')"
+          
           git push -f origin master
