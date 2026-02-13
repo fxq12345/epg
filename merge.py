@@ -30,9 +30,11 @@ def merge_all(local_file):
     all_channels = []
     all_programs = []
 
-    # 读取网络源
+    # 1. 读取网络源（config.txt 里的5条）
     with open("config.txt", "r", encoding="utf-8") as f:
         urls = [line.strip() for line in f if line.strip().startswith("http")]
+
+    print(f"📥 网络源共 {len(urls)} 个")
 
     xml_trees = []
     with ThreadPoolExecutor(max_workers=3) as executor:
@@ -70,7 +72,7 @@ def merge_all(local_file):
                 p.set("channel", new_c)
             all_programs.append(p)
 
-    # 合并潍坊本地源
+    # 2. 合并潍坊本地源（weifang_4channels_epg.xml）
     if os.path.exists(local_file):
         try:
             with open(local_file, "r", encoding="utf-8") as f:
@@ -91,10 +93,11 @@ def merge_all(local_file):
                 if new_c:
                     p.set("channel", new_c)
                 all_programs.append(p)
+            print("✅ 潍坊本地4频道已合并")
         except Exception as e:
-            print("本地源读取失败", e)
+            print("⚠️ 潍坊源读取失败，已跳过")
 
-    # 去重
+    # 3. 节目去重
     unique_p = []
     seen = set()
     for p in all_programs:
@@ -106,7 +109,7 @@ def merge_all(local_file):
         except:
             continue
 
-    # 只输出到 output/epg.gz
+    # 4. 输出到 output/epg.gz
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     out_path = os.path.join(OUTPUT_DIR, "epg.gz")
 
@@ -119,6 +122,9 @@ def merge_all(local_file):
     xml_data = etree.tostring(root, encoding="utf-8", xml_declaration=True)
     with gzip.open(out_path, "wb") as f:
         f.write(xml_data)
+
+    size = os.path.getsize(out_path) / 1024 / 1024
+    print(f"✅ 生成完成！频道={len(all_channels)} 节目={len(unique_p)} | {size:.2f}MB")
 
 if __name__ == "__main__":
     merge_all("weifang_4channels_epg.xml")
