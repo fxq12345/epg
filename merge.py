@@ -1,12 +1,19 @@
 # ====================== 修复版本：统一ID为频道名称，解决潍坊台乱码问题 ======================
 def merge_all(weifang_gz_file):
-    print("🔍 调试：开始 merge_all 函数（已修复ID统一问题）")
+    # 强制刷新缓冲区，确保日志实时输出
+    import sys
+    def print_flush(*args, **kwargs):
+        print(*args, **kwargs)
+        sys.stdout.flush()
+        sys.stderr.flush()
+
+    print_flush("🔍 调试：开始 merge_all 函数（已修复ID统一问题）")
 
     if os.path.exists(weifang_gz_file):
         file_size = os.path.getsize(weifang_gz_file)
-        print(f"🔍 调试：潍坊文件存在，大小: {file_size} bytes")
+        print_flush(f"🔍 调试：潍坊文件存在，大小: {file_size} bytes")
     else:
-        print(f"❌ 调试：潍坊文件不存在: {weifang_gz_file}")
+        print_flush(f"❌ 调试：潍坊文件不存在: {weifang_gz_file}")
         return
 
     all_channels = []
@@ -17,12 +24,12 @@ def merge_all(weifang_gz_file):
     fail_cnt = 0
 
     if not os.path.exists("config.txt"):
-        print("❌ 未找到 config.txt 文件")
+        print_flush("❌ 未找到 config.txt 文件")
         empty_output = os.path.join(OUTPUT_DIR, "epg.gz")
         empty_xml = b'<?xml version="1.0" encoding="utf-8"?>\n<tv></tv>'
         with gzip.open(empty_output, "wb") as f:
             f.write(empty_xml)
-        print(f"⚠️ 已创建空的EPG文件: {empty_output}")
+        print_flush(f"⚠️ 已创建空的EPG文件: {empty_output}")
         return
 
     # 已修复：config.txt.txt → config.txt
@@ -32,23 +39,23 @@ def merge_all(weifang_gz_file):
             line = line.strip()
             if line and line.startswith("http"):
                 urls.append(line)
-                print(f"🔍 配置第{line_num}行: {line[:60]}...")
+                print_flush(f"🔍 配置第{line_num}行: {line[:60]}...")
             elif line:
-                print(f"🔍 配置第{line_num}行(跳过): {line[:60]}...")
+                print_flush(f"🔍 配置第{line_num}行(跳过): {line[:60]}...")
 
     if not urls:
-        print("❌ config.txt 中没有找到有效的URL")
+        print_flush("❌ config.txt 中没有找到有效的URL")
         empty_output = os.path.join(OUTPUT_DIR, "epg.gz")
         empty_xml = b'<?xml version="1.0" encoding="utf-8"?>\n<tv></tv>'
         with gzip.open(empty_output, "wb") as f:
             f.write(empty_xml)
-        print(f"⚠️ 已创建空的EPG文件: {empty_output}")
+        print_flush(f"⚠️ 已创建空的EPG文件: {empty_output}")
         return
 
-    print("=" * 60)
-    print(f"🔍 调试：找到 {len(urls)} 个URL")
-    print("EPG 源抓取统计（失败自动重试）")
-    print("=" * 60)
+    print_flush("=" * 60)
+    print_flush(f"🔍 调试：找到 {len(urls)} 个URL")
+    print_flush("EPG 源抓取统计（失败自动重试）")
+    print_flush("=" * 60)
 
     xml_trees = []
 
@@ -63,18 +70,18 @@ def merge_all(weifang_gz_file):
                     total_ch += ch
                     total_pg += pg
                     log_retry = f"[重试{retry_cnt-1}次]" if retry_cnt > 1 else ""
-                    print(f"✅ {u[:55]}... {log_retry}成功 | 频道 {ch:>4} | 节目 {pg:>6}")
+                    print_flush(f"✅ {u[:55]}... {log_retry}成功 | 频道 {ch:>4} | 节目 {pg:>6}")
                     if tree is not None:
                         xml_trees.append(tree)
                 else:
                     fail_cnt += 1
-                    print(f"❌ {u[:55]}... 抓取失败")
+                    print_flush(f"❌ {u[:55]}... 抓取失败")
             except Exception as e:
                 fail_cnt += 1
-                print(f"❌ {u[:55]}... 执行异常: {e}")
+                print_flush(f"❌ {u[:55]}... 执行异常: {e}")
 
-    print(f"🔍 调试：抓取完成，成功 {success_cnt} 个，失败 {fail_cnt} 个")
-    print(f"🔍 调试：获取到 {len(xml_trees)} 个XML树")
+    print_flush(f"🔍 调试：抓取完成，成功 {success_cnt} 个，失败 {fail_cnt} 个")
+    print_flush(f"🔍 调试：获取到 {len(xml_trees)} 个XML树")
 
     # ========== 全局频道映射表：数字ID → 频道名 ==========
     global_channel_map = {}  # key: old_id, value: 频道名称
@@ -115,7 +122,7 @@ def merge_all(weifang_gz_file):
 
     # ========== 处理潍坊本地源（同样统一ID） ==========
     try:
-        print(f"🔍 调试：开始处理潍坊本地源: {weifang_gz_file}")
+        print_flush(f"🔍 调试：开始处理潍坊本地源: {weifang_gz_file}")
         with gzip.open(weifang_gz_file, "rb") as f:
             wf_content = f.read().decode("utf-8")
             wf_tree = etree.fromstring(wf_content.encode("utf-8"))
@@ -143,15 +150,15 @@ def merge_all(weifang_gz_file):
                 continue
             all_programs.append(prog)
 
-        print(f"🔍 调试：潍坊源处理完成")
+        print_flush(f"🔍 调试：潍坊源处理完成")
     except Exception as e:
-        print(f"⚠️ 潍坊本地源读取失败: {e}")
+        print_flush(f"⚠️ 潍坊本地源读取失败: {e}")
 
     # ========== 节目去重 ==========
-    print(f"处理前: 频道 {len(all_channels)} 个, 节目 {len(all_programs)} 个")
+    print_flush(f"处理前: 频道 {len(all_channels)} 个, 节目 {len(all_programs)} 个")
 
     if len(all_channels) == 0 and len(all_programs) == 0:
-        print("⚠️ 没有数据，生成空文件")
+        print_flush("⚠️ 没有数据，生成空文件")
         final_root = etree.Element("tv")
         xml_str = etree.tostring(final_root, encoding="utf-8", pretty_print=True, xml_declaration=True)
         output_path = os.path.join(OUTPUT_DIR, "epg.gz")
@@ -193,7 +200,7 @@ def merge_all(weifang_gz_file):
         f.write(xml_str)
 
     file_size_mb = os.path.getsize(output_path) / 1024 / 1024
-    print("=" * 60)
-    print(f"✅ 合并完成！频道：{len(all_channels)} ｜ 节目：{len(unique_programs)}")
-    print(f"📦 文件：{output_path} ({file_size_mb:.2f}MB)")
-    print("🎉 潍坊台 + 网络源 已完全统一格式！")
+    print_flush("=" * 60)
+    print_flush(f"✅ 合并完成！频道：{len(all_channels)} ｜ 节目：{len(unique_programs)}")
+    print_flush(f"📦 文件：{output_path} ({file_size_mb:.2f}MB)")
+    print_flush("🎉 潍坊台 + 网络源 已完全统一格式！")
