@@ -1,33 +1,92 @@
 import os
 import gzip
 import requests
+import time
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
+import requests.adapters
+from requests.packages.urllib3.util.retry import Retry
 
 # 全局配置
 OUTPUT_DIR = "output"
 MAX_RETRY = 3
 TIMEOUT = 30
 
+def create_session():
+    """创建带重试的会话，提升网络稳定性"""
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"]
+    )
+    adapter = requests.adapters.HTTPAdapter(
+        max_retries=retry_strategy,
+        pool_connections=10,
+        pool_maxsize=10
+    )
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
 def fetch_with_retry(url):
+    session = create_session()
     retry_cnt = 0
     while retry_cnt < MAX_RETRY:
         retry_cnt += 1
         try:
             print(f"🔄 抓取: {url[:60]}... 第{retry_cnt}次")
-            resp = requests.get(url, timeout=TIMEOUT, stream=True)
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            resp = session.get(url, timeout=TIMEOUT, headers=headers, stream=True)
             resp.raise_for_status()
             content = resp.content
-            if url.endswith(".gz") or resp.headers.get("content-encoding") == "gzip":
-                content = gzip.decompress(content)
-            tree = etree.fromstring(content)
+            
+            # 智能检测并解压 gzip
+            try_gzip = False
+            if url.endswith(".gz"):
+                try_gzip = True
+            elif resp.headers.get("content-encoding") == "gzip":
+                try_gzip = True
+            elif resp.headers.get("Content-Type", "").endswith("gzip"):
+                try_gzip = True
+            
+            if try_gzip:
+                try:
+                    content = gzip.decompress(content)
+                    print(f"  检测到gzip格式，已解压")
+                except (gzip.BadGzipFile, OSError):
+                    print(f"  警告：标记为gzip但实际不是，按普通XML处理")
+            
+            # 兼容多种编码
+            try:
+                xml_str = content.decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    xml_str = content.decode('gbk')
+                except:
+                    xml_str = content.decode('utf-8', errors='ignore')
+            
+            tree = etree.fromstring(xml_str.encode('utf-8'))
             ch = len(tree.findall(".//channel"))
             pg = len(tree.findall(".//programme"))
             print(f"✅ 成功: 频道 {ch} 节目 {pg}")
             return True, tree, ch, pg
+            
+        except requests.exceptions.RequestException as e:
+            print(f"❌ 网络错误: {type(e).__name__}: {str(e)[:80]}")
+        except etree.XMLSyntaxError as e:
+            print(f"❌ XML解析错误: {str(e)[:80]}")
         except Exception as e:
-            print(f"❌ 失败: {str(e)[:80]}")
+            print(f"❌ 其他错误: {type(e).__name__}: {str(e)[:80]}")
+        
+        if retry_cnt < MAX_RETRY:
+            time.sleep(2 ** retry_cnt)
+    
     return False, None, 0, 0
 
 def merge_all(local_file):
@@ -81,7 +140,7 @@ def merge_all(local_file):
                 continue
             all_programs.append(p)
 
-    # 2. 合并潍坊本地源（weifang.gz）
+    # 2. 合并潍坊本地源（失败自动跳过）
     if os.path.exists(local_file):
         try:
             with gzip.open(local_file, "rb") as f:
@@ -107,9 +166,9 @@ def merge_all(local_file):
                 all_programs.append(p)
             print("✅ 潍坊本地4频道已合并")
         except Exception as e:
-            print(f"⚠️ 潍坊源读取失败: {e}")
+            print(f"⚠️ 潍坊源读取失败，已跳过: {e}")
     else:
-        print(f"⚠️ 未找到潍坊源: {local_file}")
+        print(f"⚠️ 未找到潍坊源文件 {local_file}，已跳过")
 
     # 3. 节目去重
     print(f"原始节目数: {len(all_programs)}")
@@ -131,7 +190,7 @@ def merge_all(local_file):
     out_path = os.path.join(OUTPUT_DIR, "epg.gz")
 
     root = etree.Element("tv")
-    root.insert(0, etree.Comment(f"Built {datetime.now()}"))
+    root.insert(0, etree.Comment(f"Built {datetime.now()} | 智能gzip解压"))
     for ch in all_channels:
         root.append(ch)
     for p in unique:
