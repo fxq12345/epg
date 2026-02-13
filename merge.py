@@ -29,11 +29,11 @@ def fetch_with_retry(url):
 
 def merge_all(weifang_gz_file):
     import sys
-    def p(*args):
+    def print_flush(*args):
         print(*args)
         sys.stdout.flush()
 
-    p("🔰 EPG 合并脚本开始运行")
+    print_flush("🔰 EPG 合并脚本开始运行")
 
     all_channels = []
     all_programs = []
@@ -41,15 +41,15 @@ def merge_all(weifang_gz_file):
 
     # 读取 config.txt
     if not os.path.exists("config.txt"):
-        p("❌ 找不到 config.txt")
+        print_flush("❌ 找不到 config.txt")
         return
     with open("config.txt", "r", encoding="utf-8") as f:
         urls = [l.strip() for l in f if l.strip().startswith("http")]
     if not urls:
-        p("❌ config.txt 无有效URL")
+        print_flush("❌ config.txt 无有效URL")
         return
 
-    p(f"📥 共 {len(urls)} 个源")
+    print_flush(f"📥 共 {len(urls)} 个源")
 
     # 抓取
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -59,7 +59,7 @@ def merge_all(weifang_gz_file):
             if ok and tree is not None:
                 xml_trees.append(tree)
 
-    p(f"📥 成功加载 {len(xml_trees)} 个XML")
+    print_flush(f"📥 成功加载 {len(xml_trees)} 个XML")
 
     # 统一频道ID = 频道名称
     chan_map = {}
@@ -84,15 +84,15 @@ def merge_all(weifang_gz_file):
 
     # 收集节目
     for tree in xml_trees:
-        for p in tree.findall(".//programme"):
-            old_c = p.get("channel", "").strip()
+        for prog in tree.findall(".//programme"):
+            old_c = prog.get("channel", "").strip()
             new_c = chan_map.get(old_c, old_c)
             if new_c:
-                p.set("channel", new_c)
-            tit = p.find("title")
+                prog.set("channel", new_c)
+            tit = prog.find("title")
             if tit is None or not tit.text or len(tit.text.strip()) < 2:
                 continue
-            all_programs.append(p)
+            all_programs.append(prog)
 
     # 本地潍坊源（可选）
     if os.path.exists(weifang_gz_file):
@@ -109,36 +109,38 @@ def merge_all(weifang_gz_file):
                     exist_names.add(name)
                     c.set("id", name)
                     all_channels.append(c)
-            for p in wf_tree.findall(".//programme"):
-                old_c = p.get("channel", "").strip()
+            for prog in wf_tree.findall(".//programme"):
+                old_c = prog.get("channel", "").strip()
                 new_c = wf_chan.get(old_c, old_c)
                 if new_c:
-                    p.set("channel", new_c)
-                tit = p.find("title")
+                    prog.set("channel", new_c)
+                tit = prog.find("title")
                 if tit is None or not tit.text or len(tit.text.strip()) < 2:
                     continue
-                all_programs.append(p)
-            p("✅ 潍坊本地源已合并")
-        except:
-            p("⚠️ 潍坊源读取失败，跳过")
+                all_programs.append(prog)
+            print_flush("✅ 潍坊本地源已合并")
+        except Exception as e:
+            print_flush(f"⚠️ 潍坊源读取失败: {e}")
+    else:
+        print_flush(f"⚠️ 跳过潍坊源，文件不存在: {weifang_gz_file}")
 
     # 节目去重
-    p(f"原始节目数: {len(all_programs)}")
+    print_flush(f"原始节目数: {len(all_programs)}")
     unique = []
     seen = set()
-    for p in all_programs:
+    for prog in all_programs:
         try:
-            c = p.get("channel", "")
-            s = p.get("start", "")
-            t = p.find("title").text.strip()
+            c = prog.get("channel", "")
+            s = prog.get("start", "")
+            t = prog.find("title").text.strip()
             key = f"{c}|{s}|{t}"
             if key not in seen:
                 seen.add(key)
-                unique.append(p)
+                unique.append(prog)
         except:
             continue
     unique.sort(key=lambda x: (x.get("channel", ""), x.get("start", "")))
-    p(f"去重后节目: {len(unique)}")
+    print_flush(f"去重后节目: {len(unique)}")
 
     # 输出
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -148,18 +150,18 @@ def merge_all(weifang_gz_file):
     root.insert(0, etree.Comment(f"Built {datetime.now()}"))
     for c in all_channels:
         root.append(c)
-    for p in unique:
-        root.append(p)
+    for prog in unique:
+        root.append(prog)
 
     xml = etree.tostring(root, encoding="utf-8", pretty_print=True, xml_declaration=True)
     with gzip.open(out, "wb") as f:
         f.write(xml)
 
     size = os.path.getsize(out) / 1024 / 1024
-    p("="*50)
-    p(f"✅ 完成！频道={len(all_channels)} 节目={len(unique)}")
-    p(f"📦 文件: {out}  {size:.2f}MB")
-    p("="*50)
+    print_flush("="*50)
+    print_flush(f"✅ 完成！频道={len(all_channels)} 节目={len(unique)}")
+    print_flush(f"📦 文件: {out}  {size:.2f}MB")
+    print_flush("="*50)
 
 if __name__ == "__main__":
     merge_all("weifang_epg.gz")
