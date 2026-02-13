@@ -25,7 +25,8 @@ def merge_all(weifang_gz_file):
         print(f"⚠️ 已创建空的EPG文件: {empty_output}")
         return
 
-    with open("config.txt.txt", "r", encoding="utf-8") as f:
+    # 已修复：config.txt.txt → config.txt
+    with open("config.txt", "r", encoding="utf-8") as f:
         urls = []
         for line_num, line in enumerate(f, 1):
             line = line.strip()
