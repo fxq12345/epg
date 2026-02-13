@@ -2,7 +2,7 @@ name: EPG自动更新
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 16 * *'
+    - cron: '30 16 * * *'  # 修复：cron 表达式必须是 5 段，最后加一个 *
 
 jobs:
   build:
