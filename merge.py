@@ -129,7 +129,7 @@ def merge_all(local_file):
     for tree in xml_trees:
         for p in tree.findall(".//programme"):
             old_c = p.get("channel", "").strip()
-            new_c = id_map.get(old_c, old_c)
+            new_c = id_map.get(old_c, old_id)
             if new_c:
                 p.set("channel", new_c)
             tit = p.find("title")
@@ -154,7 +154,7 @@ def merge_all(local_file):
                     all_channels.append(ch)
             for p in local_tree.findall(".//programme"):
                 old_c = p.get("channel", "").strip()
-                new_c = local_map.get(old_c, old_c)
+                new_c = local_map.get(old_c, old_id)
                 if new_c:
                     p.set("channel", new_c)
                 tit = p.find("title")
@@ -183,14 +183,16 @@ def merge_all(local_file):
 
     all_channels.sort(key=channel_sort_key)
 
-    # 节目去重 + 过滤时间范围
+    # 节目去重 + 时间范围：前天0点到未来7天，共9天
     print(f"原始节目数: {len(all_programs)}")
     unique = []
     seen = set()
 
     now = datetime.now()
-    start_cutoff = now - timedelta(days=2)
-    end_cutoff = now + timedelta(days=8)
+    # 前天 00:00
+    start_cutoff = datetime(now.year, now.month, now.day, 0, 0, 0) - timedelta(days=2)
+    # 今天之后7天 23:59:59
+    end_cutoff   = datetime(now.year, now.month, now.day, 23, 59, 59) + timedelta(days=7)
 
     for p in all_programs:
         try:
@@ -198,13 +200,13 @@ def merge_all(local_file):
             if key in seen:
                 continue
 
-            # 简单过滤无效节目
+            # 过滤空标题
             title_elem = p.find("title")
             title = title_elem.text.strip() if (title_elem is not None and title_elem.text) else ""
             if not title or len(title) < 2:
                 continue
 
-            # 过滤太老/太远的节目
+            # 时间过滤：前天0点到未来7天
             start_str = p.get("start", "")[:12]
             p_start = datetime.strptime(start_str, "%Y%m%d%H%M")
             if not (start_cutoff <= p_start <= end_cutoff):
@@ -223,7 +225,7 @@ def merge_all(local_file):
     out_path = os.path.join(OUTPUT_DIR, "epg.gz")
 
     root = etree.Element("tv")
-    root.insert(0, etree.Comment(f"Built {datetime.now()} | 智能合并+排序"))
+    root.insert(0, etree.Comment(f"Built {datetime.now()} | 保留前天+昨今+未来7天共9天"))
     for ch in all_channels:
         root.append(ch)
     for p in unique:
@@ -236,6 +238,7 @@ def merge_all(local_file):
     size = os.path.getsize(out_path) / 1024 / 1024
     print("="*60)
     print(f"✅ 最终生成完成！")
+    print(f"📅 时间范围：{start_cutoff.strftime('%Y-%m-%d')} 至 {end_cutoff.strftime('%Y-%m-%d')}")
     print(f"📺 频道总数：{len(all_channels)}")
     print(f"📅 有效节目：{len(unique)}")
     print(f"📦 文件大小：{size:.2f}MB")
