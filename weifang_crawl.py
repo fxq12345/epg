@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 from xml.dom import minidom
 import time
 import random
+import gzip
 
 # 可选 Selenium 支持
 try:
@@ -66,7 +67,7 @@ def get_page_html(url):
             chrome_options = Options()
             chrome_options.add_argument("--headless=new")
             chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-chrome-usage")
+            chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument(f"user-agent={HEADERS['User-Agent']}")
             driver = webdriver.Chrome(options=chrome_options)
             driver.get(url)
@@ -147,10 +148,10 @@ def build_weifang_xml(all_channel_data):
     reparsed = minidom.parseString(rough_string)
     return reparsed.toprettyxml(indent="  ", encoding="utf-8")
 
-# ===================== 主程序（修复中文bytes报错，强制写入） =====================
+# ===================== 主程序（生成 .xml 并自动压缩为 .gz） =====================
 def main():
     print("="*60)
-    print("🚀 潍坊4频道 EPG 抓取（强制覆盖版）")
+    print("🚀 潍坊4频道 EPG 抓取（自动生成 .gz）")
     print("="*60)
 
     all_channel_data = {}
@@ -163,19 +164,22 @@ def main():
             time.sleep(1 + random.random()*1.5)
         all_channel_data[channel_name] = week_data
 
-    # 修复：去掉中文，解决bytes ASCII语法错误，失败生成标准空白XML
+    # 生成 XML
     try:
         xml_bytes = build_weifang_xml(all_channel_data)
     except Exception:
         xml_content = '<?xml version="1.0" encoding="utf-8"?>\n<tv source-info-name="Weifang-EPG-Backup"></tv>\n'
         xml_bytes = xml_content.encode('utf-8')
 
-    try:
-        with open("weifang_4channels_epg.xml", "wb") as f:
-            f.write(xml_bytes)
-        print("\n✅ 文件已强制写入：weifang_4channels_epg.xml")
-    except Exception as e:
-        print(f"\n❌ 写入失败: {e}")
+    # 写入 .xml
+    with open("weifang_4channels_epg.xml", "wb") as f:
+        f.write(xml_bytes)
+    print("✅ 已写入 weifang_4channels_epg.xml")
+
+    # 自动压缩为 .gz
+    with gzip.open("weifang.gz", "wb") as f:
+        f.write(xml_bytes)
+    print("✅ 已压缩为 weifang.gz")
 
 if __name__ == "__main__":
     main()
