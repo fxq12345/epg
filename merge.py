@@ -3,6 +3,7 @@ import gzip
 import requests
 import time
 from datetime import datetime, timedelta
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
 import requests.adapters
@@ -183,7 +184,7 @@ def merge_all(local_file):
 
     all_channels.sort(key=channel_sort_key)
 
-    # ====================== 核心修改：完全取消日期过滤 ======================
+    # ====================== 纯去重，不删任何日期 ======================
     print(f"原始节目数: {len(all_programs)}")
     unique = []
     seen = set()
@@ -194,7 +195,7 @@ def merge_all(local_file):
             if key in seen:
                 continue
 
-            # 只过滤完全空标题，不过滤日期
+            # 只过滤完全空的标题
             title_elem = p.find("title")
             title = title_elem.text.strip() if (title_elem is not None and title_elem.text) else ""
             if not title:
@@ -202,19 +203,53 @@ def merge_all(local_file):
 
             seen.add(key)
             unique.append(p)
-
-        except Exception as e:
+        except:
             continue
 
-    unique.sort(key=lambda x: (x.get("channel", ""), x.get("start", "")))
+    unique.sort(key=lambda x: (x.get("channel"), x.get("start")))
     print(f"去重后节目: {len(unique)}")
+
+    # ====================== 自动统计山东频道节目 ======================
+    print("\n" + "="*60)
+    print("📺 山东重点频道节目统计（上游源有就显示，无则为0）")
+    print("="*60)
+
+    target_names = [
+        "山东齐鲁",
+        "山东综艺",
+        "山东生活",
+        "山东少儿",
+        "山东体育",
+        "山东新闻",
+        "山东文旅"
+    ]
+
+    chan_days = defaultdict(set)
+    for p in unique:
+        c = p.get("channel", "")
+        s = p.get("start", "")
+        if len(s) >= 8:
+            day = s[:8]
+            for tn in target_names:
+                if tn in c:
+                    chan_days[tn].add(day)
+                    break
+
+    for tn in target_names:
+        days = sorted(chan_days.get(tn, set()))
+        if days:
+            print(f"✅ {tn}：有 {len(days)} 天 | {days[0][:4]}-{days[0][4:6]}-{days[0][6:]} ~ {days[-1][:4]}-{days[-1][4:6]}-{days[-1][6:]}")
+        else:
+            print(f"❌ {tn}：无任何节目")
+
+    print("="*60 + "\n")
 
     # 输出
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     out_path = os.path.join(OUTPUT_DIR, "epg.gz")
 
     root = etree.Element("tv")
-    root.insert(0, etree.Comment(f"Built {datetime.now()} | 无日期过滤，保留所有节目"))
+    root.insert(0, etree.Comment(f"Built {datetime.now()} | 纯去重，不过滤任何时间"))
     for ch in all_channels:
         root.append(ch)
     for p in unique:
@@ -226,7 +261,7 @@ def merge_all(local_file):
 
     size = os.path.getsize(out_path) / 1024 / 1024
     print("="*60)
-    print(f"✅ 最终生成完成！（无日期过滤，所有节目全保留）")
+    print(f"✅ 生成完成！代码已不做任何日期删减")
     print(f"📺 频道总数：{len(all_channels)}")
     print(f"📅 有效节目：{len(unique)}")
     print(f"📦 文件大小：{size:.2f}MB")
