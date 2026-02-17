@@ -183,15 +183,10 @@ def merge_all(local_file):
 
     all_channels.sort(key=channel_sort_key)
 
-    # 节目去重 + 时间范围：放宽过滤版
+    # ====================== 核心修改：完全取消日期过滤 ======================
     print(f"原始节目数: {len(all_programs)}")
     unique = []
     seen = set()
-
-    now = datetime.now()
-    # ====================== 已放宽时间范围 ======================
-    start_cutoff = datetime(now.year, now.month, now.day, 0, 0, 0) - timedelta(days=3)   # 从前2天 → 前3天
-    end_cutoff   = datetime(now.year, now.month, now.day, 23, 59, 59) + timedelta(days=8) # 从未来7天 → 未来8天
 
     for p in all_programs:
         try:
@@ -199,29 +194,16 @@ def merge_all(local_file):
             if key in seen:
                 continue
 
-            # 过滤空标题（已放宽：≥1字即可）
+            # 只过滤完全空标题，不过滤日期
             title_elem = p.find("title")
             title = title_elem.text.strip() if (title_elem is not None and title_elem.text) else ""
-            if not title or len(title) < 1:
-                continue
-
-            # 兼容 14 位时间（防止截断出错）
-            start_str = p.get("start", "")[:14]
-            if len(start_str) >= 12:
-                p_start = datetime.strptime(start_str[:12], "%Y%m%d%H%M")
-            else:
-                continue
-
-            # 时间过滤（已放宽）
-            if not (start_cutoff <= p_start <= end_cutoff):
+            if not title:
                 continue
 
             seen.add(key)
             unique.append(p)
 
         except Exception as e:
-            # 打印异常节目，方便你排查
-            # print(f"⚠️ 节目异常: {p.get('channel')} {p.get('start')} → {e}")
             continue
 
     unique.sort(key=lambda x: (x.get("channel", ""), x.get("start", "")))
@@ -232,7 +214,7 @@ def merge_all(local_file):
     out_path = os.path.join(OUTPUT_DIR, "epg.gz")
 
     root = etree.Element("tv")
-    root.insert(0, etree.Comment(f"Built {datetime.now()} | 放宽过滤版：保留前3天+未来8天"))
+    root.insert(0, etree.Comment(f"Built {datetime.now()} | 无日期过滤，保留所有节目"))
     for ch in all_channels:
         root.append(ch)
     for p in unique:
@@ -244,8 +226,7 @@ def merge_all(local_file):
 
     size = os.path.getsize(out_path) / 1024 / 1024
     print("="*60)
-    print(f"✅ 最终生成完成！（已放宽过滤）")
-    print(f"📅 时间范围：{start_cutoff.strftime('%Y-%m-%d')} 至 {end_cutoff.strftime('%Y-%m-%d')}")
+    print(f"✅ 最终生成完成！（无日期过滤，所有节目全保留）")
     print(f"📺 频道总数：{len(all_channels)}")
     print(f"📅 有效节目：{len(unique)}")
     print(f"📦 文件大小：{size:.2f}MB")
