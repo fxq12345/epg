@@ -9,6 +9,15 @@ from lxml import etree
 import requests.adapters
 from requests.packages.urllib3.util.retry import Retry
 
+# 自动先抓潍坊，生成 weifang.gz
+try:
+    import weifang_crawl
+    print("🔄 正在抓取潍坊本地频道...")
+    weifang_crawl.main()
+    print("✅ 潍坊抓取完成，已生成 weifang.gz")
+except Exception as e:
+    print(f"⚠️ 潍坊抓取失败: {e}")
+
 # 全局配置
 OUTPUT_DIR = "output"
 MAX_RETRY = 3
@@ -91,7 +100,7 @@ def merge_all(local_file):
     all_channels = []
     all_programs = []
 
-    # 读取并去重URL
+    # 读取网络源
     with open("config.txt", "r", encoding="utf-8") as f:
         urls = list({line.strip() for line in f if line.strip().startswith("http")})
 
@@ -107,7 +116,7 @@ def merge_all(local_file):
 
     print(f"📥 成功加载 {len(xml_trees)} 个XML")
 
-    # 统一频道ID为名称（按频道名去重）
+    # 统一频道ID为名称
     id_map = {}
     for tree in xml_trees:
         for ch in tree.findall(".//channel"):
@@ -138,7 +147,7 @@ def merge_all(local_file):
                 continue
             all_programs.append(p)
 
-    # 合并潍坊本地源
+    # 合并 weifang.gz
     if os.path.exists(local_file):
         try:
             with gzip.open(local_file, "rb") as f:
@@ -166,9 +175,9 @@ def merge_all(local_file):
         except Exception as e:
             print(f"⚠️ 潍坊源读取失败，已跳过: {e}")
     else:
-        print(f"⚠️ 未找到潍坊源文件 {local_file}，已跳过")
+        print(f"⚠️ 未找到 {local_file}，已跳过")
 
-    # 频道排序：山东 > 潍坊 > CCTV > 卫视 > 其他
+    # 频道排序
     def channel_sort_key(channel_elem):
         name = channel_elem.get("id", "").strip()
         if "山东" in name:
@@ -184,7 +193,7 @@ def merge_all(local_file):
 
     all_channels.sort(key=channel_sort_key)
 
-    # ====================== 纯去重，不删任何日期 ======================
+    # 去重，不删任何日期
     print(f"原始节目数: {len(all_programs)}")
     unique = []
     seen = set()
@@ -194,12 +203,10 @@ def merge_all(local_file):
             key = p.get("channel") + "|" + p.get("start")
             if key in seen:
                 continue
-
             title_elem = p.find("title")
             title = title_elem.text.strip() if (title_elem is not None and title_elem.text) else ""
             if not title:
                 continue
-
             seen.add(key)
             unique.append(p)
         except:
@@ -208,9 +215,9 @@ def merge_all(local_file):
     unique.sort(key=lambda x: (x.get("channel"), x.get("start")))
     print(f"去重后节目: {len(unique)}")
 
-    # ====================== 自动统计山东频道节目 ======================
+    # 山东频道统计
     print("\n" + "="*60)
-    print("📺 山东重点频道节目统计（上游源有就显示，无则为0）")
+    print("📺 山东重点频道节目统计")
     print("="*60)
 
     target_names = [
@@ -237,18 +244,17 @@ def merge_all(local_file):
     for tn in target_names:
         days = sorted(chan_days.get(tn, set()))
         if days:
-            print(f"✅ {tn}：有 {len(days)} 天 | {days[0][:4]}-{days[0][4:6]}-{days[0][6:]} ~ {days[-1][:4]}-{days[-1][4:6]}-{days[-1][6:]}")
+            print(f"✅ {tn}：{len(days)} 天 | {days[0]} ~ {days[-1]}")
         else:
-            print(f"❌ {tn}：无任何节目")
+            print(f"❌ {tn}：无节目")
 
     print("="*60 + "\n")
 
-    # 输出
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     out_path = os.path.join(OUTPUT_DIR, "epg.gz")
 
     root = etree.Element("tv")
-    root.insert(0, etree.Comment(f"Built {datetime.now()} | 纯去重，不过滤任何时间"))
+    root.insert(0, etree.Comment(f"Built {datetime.now()} | 不过滤任何日期"))
     for ch in all_channels:
         root.append(ch)
     for p in unique:
@@ -260,7 +266,7 @@ def merge_all(local_file):
 
     size = os.path.getsize(out_path) / 1024 / 1024
     print("="*60)
-    print(f"✅ 生成完成！代码已不做任何日期删减")
+    print(f"✅ 生成完成！")
     print(f"📺 频道总数：{len(all_channels)}")
     print(f"📅 有效节目：{len(unique)}")
     print(f"📦 文件大小：{size:.2f}MB")
