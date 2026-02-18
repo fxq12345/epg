@@ -2,7 +2,7 @@ import os
 import gzip
 import requests
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from lxml import etree
@@ -107,7 +107,7 @@ def merge_all(local_file):
 
     print(f"📥 成功加载 {len(xml_trees)} 个XML")
 
-    # 统一频道ID为名称
+    # 统一频道ID为名称（按频道名去重）
     id_map = {}
     for tree in xml_trees:
         for ch in tree.findall(".//channel"):
@@ -195,7 +195,6 @@ def merge_all(local_file):
             if key in seen:
                 continue
 
-            # 只过滤完全空的标题
             title_elem = p.find("title")
             title = title_elem.text.strip() if (title_elem is not None and title_elem.text) else ""
             if not title:
