@@ -231,18 +231,18 @@ function save(content, type){
       let group = '其他';
       if (/^CCTV/i.test(name)) group = '央视';
       else if (/山东|潍坊|诸城/i.test(name)) group = '山东';
-      else if (/卫视/i.test(name)) group = '其他卫视';
+      else if (/卫视/i.test(name)) group = '卫视';
       else if (/数字|CHC|动作电影|家庭影院/i.test(name)) group = '数字';
       else if (/少儿|动画|儿童|KAKU/i.test(name)) group = '少儿';
 
       groups[group].push({ name, url });
     });
 
-    // 按顺序输出各组
+    // 按顺序输出各组，这里要和 groups 的键名完全一致
     const groupOrder = ['央视', '山东', '卫视', '数字', '少儿', '其他'];
     groupOrder.forEach(groupName => {
       const items = groups[groupName];
-      if (items.length > 0) {
+      if (items && items.length > 0) {
         c += `\n#EXTGRP:${groupName}\n`;
         items.forEach(item => {
           c += `#EXTINF:-1 tvg-name="${item.name}" group-title="${groupName}",${item.name}\n${item.url}\n`;
