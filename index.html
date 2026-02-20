@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>IPTV 抓包解析工具 | 潍坊移动适配版</title>
+<title>IPTV 抓包解析工具 | 潍坊移动分类版</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -25,7 +25,7 @@ textarea{min-height:140px;resize:vertical}
 </head>
 <body>
 <div class="container">
-<h1><i class="fa fa-wifi"></i> IPTV 抓包数据解析工具（潍坊移动）</h1>
+<h1><i class="fa fa-wifi"></i> IPTV 抓包解析工具（潍坊移动分类版）</h1>
 
 <div class="input-group">
 <label>上传抓包文件</label>
@@ -38,7 +38,7 @@ textarea{min-height:140px;resize:vertical}
 
 <div class="input-group">
 <label>粘贴抓包数据</label>
-<textarea id="text" placeholder="粘贴潍坊移动抓包日志到这里"></textarea>
+<textarea id="text" placeholder="粘贴潍坊移动抓包数据到这里"></textarea>
 </div>
 
 <div class="btn-box">
@@ -74,109 +74,131 @@ function $(id){return document.getElementById(id)}
 function showMsg(s){$('msg').innerText=s;$('msg').style.display='block';setTimeout(()=>$('msg').style.display='none',2500)}
 function load(show){$('load').style.display=show?'block':'none'}
 
+// 频道分类与排序规则
+function getChannelPriority(name) {
+  if (/^CCTV/i.test(name)) return 10; // 央视
+  if (/山东|潍坊|诸城/i.test(name)) return 20; // 本地/山东（本省卫视 + 本地台）
+  if (/卫视/i.test(name)) return 30; // 其他卫视
+  if (/数字|CHC|动作电影|家庭影院/i.test(name)) return 40; // 数字
+  if (/少儿|动画|儿童/i.test(name)) return 50; // 少儿
+  return 100; // 其他
+}
+
+// 同一分类下的排序：央视按数字，其他按名称
+function sortChannels(a, b) {
+  const pA = getChannelPriority(a.name);
+  const pB = getChannelPriority(b.name);
+  if (pA !== pB) return pA - pB;
+
+  // 央视频道：提取数字排序
+  const cctvRegex = /CCTV-(\d+)/i;
+  const aMatch = a.name.match(cctvRegex);
+  const bMatch = b.name.match(cctvRegex);
+  if (aMatch && bMatch) {
+    return parseInt(aMatch[1], 10) - parseInt(bMatch[1], 10);
+  }
+
+  // 其他频道：按名称拼音排序
+  return a.name.localeCompare(b.name, 'zh-CN');
+}
+
 function extract(){
   let t = $('text').value;
   if(!t){showMsg('请粘贴或上传数据');return}
   load(1);
   setTimeout(()=>{
-    try {
-      // 1. 提取所有 ChannelListCallback 包裹的内容
-      const callbackRegex = /ChannelListCallback\(([\s\S]*?)\);/g;
-      const matches = [];
-      let match;
-      while ((match = callbackRegex.exec(t)) !== null) {
-        matches.push(match[1]);
-      }
-      if (matches.length === 0) {
-        throw new Error('未找到 ChannelListCallback 数据');
-      }
+    // 第一步：提取所有标记点
+    const points = [];
+    // 扫描 name
+    const nameRegex = /"name"\s*:\s*"([^"]+)"/g;
+    let match;
+    while ((match = nameRegex.exec(t)) !== null) {
+      points.push({ type: 'name', value: match[1].trim(), pos: match.index });
+    }
+    // 扫描 playurl (rtp://)
+    const playurlRegex = /"playurl"\s*:\s*"(rtp:\/\/[^"]+)"/g;
+    while ((match = playurlRegex.exec(t)) !== null) {
+      points.push({ type: 'playurl', value: match[1].trim(), pos: match.index });
+    }
+    // 扫描 timeshifturl (rtsp://)
+    const timeshifturlRegex = /"timeshifturl"\s*:\s*"(rtsp:\/\/[^"]+)"/g;
+    while ((match = timeshifturlRegex.exec(t)) !== null) {
+      points.push({ type: 'timeshifturl', value: match[1].trim(), pos: match.index });
+    }
 
-      // 2. 合并并解析 JSON
-      const jsonStr = '[' + matches.join(',') + ']';
-      const data = JSON.parse(jsonStr);
+    if (points.length === 0) {
+      showMsg('未找到任何频道数据');
+      load(0);
+      return;
+    }
 
-      // 3. 提取所有频道列表
-      const channels = [];
-      data.forEach(item => {
-        if (item && Array.isArray(item.channelList)) {
-          channels.push(...item.channelList);
+    // 第二步：按位置排序，然后按顺序配对
+    points.sort((a, b) => a.pos - b.pos);
+    const channels = [];
+    let currentChannel = null;
+
+    points.forEach(point => {
+      if (point.type === 'name') {
+        if (currentChannel) {
+          channels.push(currentChannel);
         }
-      });
-
-      if (channels.length === 0) {
-        throw new Error('未找到频道数据');
-      }
-
-      // 4. 处理频道
-      const mcastSet = new Set();
-      const ucastSet = new Set();
-      channels.forEach(channel => {
-        const name = channel.name || '未知频道';
-        const playurl = channel.playurl || '';
-        const timeshifturl = channel.timeshifturl || '';
-
-        // 组播地址 (rtp://)
-        if (playurl.startsWith('rtp://')) {
-          const cleanUrl = playurl.split('?')[0]; // 去掉参数
-          mcastSet.add(`${name},${cleanUrl}`);
+        currentChannel = { name: point.value, playurl: '', timeshifturl: '' };
+      } else if (currentChannel) {
+        if (point.type === 'playurl') {
+          currentChannel.playurl = point.value;
+        } else if (point.type === 'timeshifturl') {
+          currentChannel.timeshifturl = point.value;
         }
-
-        // 单播地址 (rtsp://)
-        if (timeshifturl.startsWith('rtsp://')) {
-          let cleanUrl = timeshifturl;
-          if (cleanUrl.includes('.smil')) {
-            cleanUrl = cleanUrl.split('.smil')[0] + '.smil';
-          }
-          ucastSet.add(`${name},${cleanUrl}`);
-        }
-      });
-
-      mcast = Array.from(mcastSet).join('\n');
-      ucast = Array.from(ucastSet).join('\n');
-
-      $('mcast').innerText = mcast || '无';
-      $('ucast').innerText = ucast || '无';
-
-      if (!mcast && !ucast) {
-        showMsg('未识别到地址');
       }
-    } catch (e) {
-      console.error('解析失败:', e);
-      showMsg('数据解析失败: ' + e.message);
-      // 降级：用旧方法尝试直接匹配
-      doMcast(t);
-      doUcast(t);
+    });
+    if (currentChannel) {
+      channels.push(currentChannel);
+    }
+
+    // 第三步：过滤掉无效频道和分类
+    const invalidNames = ['全部', '高清', '广播', '央视', '卫视', '本地', '少儿', '特色频道', '电视直播'];
+    const validChannels = channels.filter(c => 
+      c.name && 
+      !invalidNames.includes(c.name) && 
+      (c.playurl || c.timeshifturl)
+    );
+
+    if (validChannels.length === 0) {
+      showMsg('未找到有效频道');
+      load(0);
+      return;
+    }
+
+    // 第四步：按优先级排序
+    validChannels.sort(sortChannels);
+
+    // 第五步：生成结果
+    const mcastList = [];
+    const ucastList = [];
+
+    validChannels.forEach(channel => {
+      const { name, playurl, timeshifturl } = channel;
+      if (playurl) {
+        let cleanUrl = playurl.includes('?') ? playurl.split('?')[0] : playurl;
+        mcastList.push(name + ',' + cleanUrl);
+      }
+      if (timeshifturl) {
+        let cleanUrl = timeshifturl.includes('.smil') ? timeshifturl.split('.smil')[0] + '.smil' : timeshifturl;
+        ucastList.push(name + ',' + cleanUrl);
+      }
+    });
+
+    mcast = mcastList.join('\n');
+    ucast = ucastList.join('\n');
+
+    $('mcast').innerText = mcast || '无';
+    $('ucast').innerText = ucast || '无';
+
+    if (!mcast && !ucast) {
+      showMsg('未识别到有效地址');
     }
     load(0);
   }, 300);
-}
-
-function doMcast(s){
-  let set = new Set();
-  let r = /"name"\s*:\s*"([^"]+)"[^}]*"playurl"\s*:\s*"(rtp:\/\/[^"]+)"/g;
-  let m;
-  while((m=r.exec(s))!=null){
-    let channelName = m[1].trim();
-    let rtpUrl = m[2].trim();
-    if(rtpUrl.includes('?')) rtpUrl = rtpUrl.split('?')[0];
-    set.add(channelName + ',' + rtpUrl);
-  }
-  mcast = Array.from(set).join('\n');
-  $('mcast').innerText = mcast || '无'
-}
-
-function doUcast(s){
-  let set = new Set();
-  let r = /"name"\s*:\s*"([^"]+)"[^}]*"timeshifturl"\s*:\s*"(rtsp:\/\/[^"]+)"/g;
-  let m;
-  while((m=r.exec(s))!=null){
-    let channelName = m[1].trim();
-    let rtspUrl = m[2].trim();
-    if(rtspUrl.includes('.smil')) rtspUrl = rtspUrl.split('.smil')[0] + '.smil';
-    set.add(channelName + ',' + rtspUrl);
-  }
-  ucast = Array.from(set).join('\n');
-  $('ucast').innerText = ucast || '无'
 }
 
 function save(content, type){
