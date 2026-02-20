@@ -38,7 +38,7 @@ textarea{min-height:140px;resize:vertical}
 
 <div class="input-group">
 <label>粘贴抓包数据</label>
-<textarea id="text" placeholder="粘贴潍坊移动抓包数据到这里"></textarea>
+<textarea id="text" placeholder="粘贴移动抓包数据到这里"></textarea>
 </div>
 
 <div class="btn-box">
@@ -217,8 +217,8 @@ function save(content, type){
     const lines = content.split('\n').filter(line => line.trim() !== '');
     const groups = {
       '央视': [],
-      '本地/山东': [],
-      '其他卫视': [],
+      '山东': [],
+      '卫视': [],
       '数字': [],
       '少儿': [],
       '其他': []
@@ -230,7 +230,7 @@ function save(content, type){
 
       let group = '其他';
       if (/^CCTV/i.test(name)) group = '央视';
-      else if (/山东|潍坊|诸城/i.test(name)) group = '本地/山东';
+      else if (/山东|潍坊|诸城/i.test(name)) group = '山东';
       else if (/卫视/i.test(name)) group = '其他卫视';
       else if (/数字|CHC|动作电影|家庭影院/i.test(name)) group = '数字';
       else if (/少儿|动画|儿童|KAKU/i.test(name)) group = '少儿';
@@ -239,7 +239,7 @@ function save(content, type){
     });
 
     // 按顺序输出各组
-    const groupOrder = ['央视', '本地/山东', '其他卫视', '数字', '少儿', '其他'];
+    const groupOrder = ['央视', '山东', '卫视', '数字', '少儿', '其他'];
     groupOrder.forEach(groupName => {
       const items = groups[groupName];
       if (items.length > 0) {
