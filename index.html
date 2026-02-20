@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>IPTV 抓包解析工具 | 个人仓库版</title>
+<title>IPTV 抓包解析工具 | 潍坊移动适配版</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -25,7 +25,7 @@ textarea{min-height:140px;resize:vertical}
 </head>
 <body>
 <div class="container">
-<h1><i class="fa fa-wifi"></i> IPTV 抓包数据解析工具</h1>
+<h1><i class="fa fa-wifi"></i> IPTV 抓包数据解析工具（潍坊移动）</h1>
 
 <div class="input-group">
 <label>上传抓包文件</label>
@@ -38,7 +38,7 @@ textarea{min-height:140px;resize:vertical}
 
 <div class="input-group">
 <label>粘贴抓包数据</label>
-<textarea id="text" placeholder="粘贴数据到这里"></textarea>
+<textarea id="text" placeholder="粘贴潍坊移动 JSON 抓包数据到这里"></textarea>
 </div>
 
 <div class="btn-box">
@@ -88,21 +88,15 @@ function extract(){
 
 function doMcast(s){
   let set = new Set();
-  // 适配 JSON 格式：channelName + playurl (rtp://...)
-  let r1 = /"channelName"\s*:\s*"([^"]+)".*?"playurl"\s*:\s*"([^"]+)"/g;
-  let m1;
-  while((m1=r1.exec(s))!=null){
-    let n = m1[1].trim();
-    let u = m1[2].trim();
-    if(u.startsWith('rtp://')) set.add(n+','+u);
-  }
-  // 兼容旧格式：ChannelName + igmp://...
-  let r2 = /ChannelName="([^"]+)".*?igmp:\/\/(\d+\.\d+\.\d+\.\d+):(\d+)/g;
-  let m2;
-  while((m2=r2.exec(s))!=null){
-    let n = m2[1].trim();
-    let a = `rtp://${m2[2]}:${m2[3]}`;
-    set.add(n+','+a);
+  // 适配潍坊移动：匹配 "name" 和 "playurl" (rtp://)
+  let r = /"name"\s*:\s*"([^"]+)"[^}]*"playurl"\s*:\s*"(rtp:\/\/[^"]+)"/g;
+  let m;
+  while((m=r.exec(s))!=null){
+    let channelName = m[1].trim();
+    let rtpUrl = m[2].trim();
+    // 去掉 playurl 里的参数，只保留纯地址
+    if(rtpUrl.includes('?')) rtpUrl = rtpUrl.split('?')[0];
+    set.add(channelName + ',' + rtpUrl);
   }
   mcast = Array.from(set).join('\n');
   $('mcast').innerText = mcast || '无'
@@ -110,25 +104,14 @@ function doMcast(s){
 
 function doUcast(s){
   let set = new Set();
-  // 适配 JSON 格式：channelName + playurl (rtsp://...)
-  let r1 = /"channelName"\s*:\s*"([^"]+)".*?"playurl"\s*:\s*"([^"]+)"/g;
-  let m1;
-  while((m1=r1.exec(s))!=null){
-    let n = m1[1].trim();
-    let u = m1[2].trim();
-    if(u.startsWith('rtsp://')) {
-      if(u.includes('.smil')) u = u.split('.smil')[0]+'.smil';
-      set.add(n+','+u);
-    }
-  }
-  // 兼容旧格式：ChannelName + rtsp://...
-  let r2 = /ChannelName="([^"]+)".*?(rtsp:\/\/\d+\.\d+\.\d+\.\d+\/[^"]+)/g;
-  let m2;
-  while((m2=r2.exec(s))!=null){
-    let n = m2[1].trim();
-    let u = m2[2];
-    if(u.includes('.smil')) u = u.split('.smil')[0]+'.smil';
-    set.add(n+','+u);
+  // 适配潍坊移动：匹配 "name" 和 "timeshifturl" (rtsp://)
+  let r = /"name"\s*:\s*"([^"]+)"[^}]*"timeshifturl"\s*:\s*"(rtsp:\/\/[^"]+)"/g;
+  let m;
+  while((m=r.exec(s))!=null){
+    let channelName = m[1].trim();
+    let rtspUrl = m[2].trim();
+    if(rtspUrl.includes('.smil')) rtspUrl = rtspUrl.split('.smil')[0] + '.smil';
+    set.add(channelName + ',' + rtspUrl);
   }
   ucast = Array.from(set).join('\n');
   $('ucast').innerText = ucast || '无'
@@ -137,7 +120,7 @@ function doUcast(s){
 function save(content, type){
   if(!content){showMsg('请先提取'+type);return}
   let fmt = document.querySelector('input[name="fmt"]:checked').value;
-  let name = `IPTV_${type}.${fmt}`;
+  let name = `潍坊移动IPTV_${type}.${fmt}`;
   let c;
   if(fmt==='txt'){
     c=content
