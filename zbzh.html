@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TXT ↔ M3U 互转</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#f4f4f4;padding:15px;font-family:monospace}
+.container{max-width:800px;margin:0 auto;background:#fff;padding:15px;border-radius:8px}
+textarea{width:100%;height:220px;margin:10px 0;padding:10px;border:1px solid #ddd}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
+button{padding:10px;background:#2d8cf0;color:white;border:none;border-radius:4px;cursor:pointer}
+.desc{font-size:12px;color:#666;margin-bottom:10px}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="desc">支持：电视直播 TXT ↔ M3U 互转 | 格式：频道名,地址 | 分组：分组名,#genre#</div>
+  <textarea id="input" placeholder="粘贴内容到这里…"></textarea>
+  <div class="btns">
+    <button onclick="txt2m3u()">TXT → M3U</button>
+    <button onclick="m3u2txt()">M3U → TXT</button>
+  </div>
+  <textarea id="output" readonly placeholder="转换结果…"></textarea>
+</div>
+
+<script>
+// TXT 转 M3U
+function txt2m3u() {
+  const txt = document.getElementById('input').value;
+  const lines = txt.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  let m3u = '#EXTM3U\n';
+  let group = '';
+  for (const line of lines) {
+    if (line.includes(',#genre#')) {
+      group = line.split(',')[0];
+      continue;
+    }
+    const [name, ...urlParts] = line.split(',');
+    const url = urlParts.join(',');
+    if (!name || !url) continue;
+    m3u += `#EXTINF:-1 tvg-name="${name}" group-title="${group}",${name}\n${url}\n`;
+  }
+  document.getElementById('output').value = m3u;
+}
+
+// M3U 转 TXT
+function m3u2txt() {
+  const m3u = document.getElementById('input').value;
+  const lines = m3u.split(/\r?\n/);
+  const groups = {};
+  let currentGroup = '未分组';
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (line.startsWith('#EXTINF:-1')) {
+      const name = (line.match(/tvg-name="([^"]*)/) || line.split(',')).pop() || '未知';
+      const group = line.match(/group-title="([^"]*)/)?.[1] || currentGroup;
+      const url = (i + 1 < lines.length) ? lines[i + 1].trim() : '';
+      if (url && /^https?/.test(url)) {
+        groups[group] ??= [];
+        groups[group].push(`${name},${url}`);
+        currentGroup = group;
+      }
+      i += 2;
+    } else {
+      i++;
+    }
+  }
+  let txt = '';
+  for (const [g, list] of Object.entries(groups)) {
+    txt += `${g},#genre#\n` + list.join('\n') + '\n\n';
+  }
+  document.getElementById('output').value = txt.trim();
+}
+</script>
+</body>
+</html>
