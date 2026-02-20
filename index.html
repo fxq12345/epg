@@ -29,7 +29,7 @@ textarea{min-height:140px;resize:vertical}
 
 <div class="input-group">
 <label>上传抓包文件</label>
-<input type="file" id="file" accept=".txt,.jsp,.xml">
+<input type="file" id="file" accept=".txt,.jsp,.xml,.json">
 </div>
 
 <div class="btn-box">
@@ -87,12 +87,21 @@ function extract(){
 }
 
 function doMcast(s){
-  let r = /ChannelName="([^"]+)".*?igmp:\/\/(\d+\.\d+\.\d+\.\d+):(\d+)/g;
   let set = new Set();
-  let m;
-  while((m=r.exec(s))!=null){
-    let n = m[1].trim();
-    let a = `rtp://${m[2]}:${m[3]}`;
+  // 适配 JSON 格式：channelName + playurl (rtp://...)
+  let r1 = /"channelName"\s*:\s*"([^"]+)".*?"playurl"\s*:\s*"([^"]+)"/g;
+  let m1;
+  while((m1=r1.exec(s))!=null){
+    let n = m1[1].trim();
+    let u = m1[2].trim();
+    if(u.startsWith('rtp://')) set.add(n+','+u);
+  }
+  // 兼容旧格式：ChannelName + igmp://...
+  let r2 = /ChannelName="([^"]+)".*?igmp:\/\/(\d+\.\d+\.\d+\.\d+):(\d+)/g;
+  let m2;
+  while((m2=r2.exec(s))!=null){
+    let n = m2[1].trim();
+    let a = `rtp://${m2[2]}:${m2[3]}`;
     set.add(n+','+a);
   }
   mcast = Array.from(set).join('\n');
@@ -100,12 +109,24 @@ function doMcast(s){
 }
 
 function doUcast(s){
-  let r = /ChannelName="([^"]+)".*?(rtsp:\/\/\d+\.\d+\.\d+\.\d+\/[^"]+)/g;
   let set = new Set();
-  let m;
-  while((m=r.exec(s))!=null){
-    let n = m[1].trim();
-    let u = m[2];
+  // 适配 JSON 格式：channelName + playurl (rtsp://...)
+  let r1 = /"channelName"\s*:\s*"([^"]+)".*?"playurl"\s*:\s*"([^"]+)"/g;
+  let m1;
+  while((m1=r1.exec(s))!=null){
+    let n = m1[1].trim();
+    let u = m1[2].trim();
+    if(u.startsWith('rtsp://')) {
+      if(u.includes('.smil')) u = u.split('.smil')[0]+'.smil';
+      set.add(n+','+u);
+    }
+  }
+  // 兼容旧格式：ChannelName + rtsp://...
+  let r2 = /ChannelName="([^"]+)".*?(rtsp:\/\/\d+\.\d+\.\d+\.\d+\/[^"]+)/g;
+  let m2;
+  while((m2=r2.exec(s))!=null){
+    let n = m2[1].trim();
+    let u = m2[2];
     if(u.includes('.smil')) u = u.split('.smil')[0]+'.smil';
     set.add(n+','+u);
   }
