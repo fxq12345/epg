@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,sans-serif;background:#f6f7f9;padding:15px;color:#222}
+body{font-family:system-ui,sans-serif;background:#f6f79;padding:15px;color:#222}
 .container{max-width:700px;margin:0 auto;background:#fff;border-radius:10px;padding:20px;box-shadow:0 2px 10px rgba(0,0,0,0.08)}
 h1{text-align:center;color:#0066cc;margin-bottom:20px;font-size:22px}
 .input-group{margin-bottom:15px}
@@ -38,7 +38,7 @@ textarea{min-height:140px;resize:vertical}
 
 <div class="input-group">
 <label>粘贴抓包数据</label>
-<textarea id="text" placeholder="粘贴潍坊移动 JSON 抓包数据到这里"></textarea>
+<textarea id="text" placeholder="粘贴潍坊移动抓包日志到这里"></textarea>
 </div>
 
 <div class="btn-box">
@@ -79,22 +79,76 @@ function extract(){
   if(!t){showMsg('请粘贴或上传数据');return}
   load(1);
   setTimeout(()=>{
-    doMcast(t);
-    doUcast(t);
+    // 先提取所有 ChannelListCallback 里的 JSON 数据
+    let jsonData = '';
+    const callbackRegex = /ChannelListCallback\(([\s\S]*?)\);/g;
+    let match;
+    while ((match = callbackRegex.exec(t)) !== null) {
+      jsonData += match[1] + ',';
+    }
+    if (jsonData) {
+      // 把多个回调结果合并成一个数组
+      jsonData = '[' + jsonData.slice(0, -1) + ']';
+      try {
+        const data = JSON.parse(jsonData);
+        // 从数组中提取所有频道
+        const channels = [];
+        if (Array.isArray(data)) {
+          data.forEach(item => {
+            if (Array.isArray(item.channelList)) {
+              channels.push(...item.channelList);
+            } else if (Array.isArray(item)) {
+              channels.push(...item);
+            }
+          });
+        }
+        // 处理组播和单播
+        processChannels(channels);
+      } catch (e) {
+        console.error('JSON 解析失败', e);
+        showMsg('数据解析失败，请检查抓包内容');
+      }
+    } else {
+      // 如果没有找到 ChannelListCallback，尝试直接用旧方法匹配
+      doMcast(t);
+      doUcast(t);
+    }
     load(0);
     if(!mcast && !ucast) showMsg('未识别到地址')
   },300)
 }
 
+function processChannels(channels) {
+  const mcastSet = new Set();
+  const ucastSet = new Set();
+  channels.forEach(channel => {
+    const name = channel.name || channel.channelName || '未知频道';
+    const playurl = channel.playurl || '';
+    const timeshifturl = channel.timeshifturl || '';
+    // 处理组播地址 (rtp://)
+    if (playurl.startsWith('rtp://')) {
+      let cleanUrl = playurl.includes('?') ? playurl.split('?')[0] : playurl;
+      mcastSet.add(name + ',' + cleanUrl);
+    }
+    // 处理单播地址 (rtsp://)
+    if (timeshifturl.startsWith('rtsp://')) {
+      let cleanUrl = timeshifturl.includes('.smil') ? timeshifturl.split('.smil')[0] + '.smil' : timeshifturl;
+      ucastSet.add(name + ',' + cleanUrl);
+    }
+  });
+  mcast = Array.from(mcastSet).join('\n');
+  ucast = Array.from(ucastSet).join('\n');
+  $('mcast').innerText = mcast || '无';
+  $('ucast').innerText = ucast || '无';
+}
+
 function doMcast(s){
   let set = new Set();
-  // 适配潍坊移动：匹配 "name" 和 "playurl" (rtp://)
   let r = /"name"\s*:\s*"([^"]+)"[^}]*"playurl"\s*:\s*"(rtp:\/\/[^"]+)"/g;
   let m;
   while((m=r.exec(s))!=null){
     let channelName = m[1].trim();
     let rtpUrl = m[2].trim();
-    // 去掉 playurl 里的参数，只保留纯地址
     if(rtpUrl.includes('?')) rtpUrl = rtpUrl.split('?')[0];
     set.add(channelName + ',' + rtpUrl);
   }
@@ -104,7 +158,6 @@ function doMcast(s){
 
 function doUcast(s){
   let set = new Set();
-  // 适配潍坊移动：匹配 "name" 和 "timeshifturl" (rtsp://)
   let r = /"name"\s*:\s*"([^"]+)"[^}]*"timeshifturl"\s*:\s*"(rtsp:\/\/[^"]+)"/g;
   let m;
   while((m=r.exec(s))!=null){
