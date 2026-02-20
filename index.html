@@ -1,3 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IPTV 抓包解析工具 | 潍坊移动分类版</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#f6f7f9;padding:15px;color:#222}
+.container{max-width:700px;margin:0 auto;background:#fff;border-radius:10px;padding:20px;box-shadow:0 2px 10px rgba(0,0,0,0.08)}
+h1{text-align:center;color:#0066cc;margin-bottom:20px;font-size:22px}
+.input-group{margin-bottom:15px}
+.input-group label{display:block;margin-bottom:6px;font-weight:500}
+textarea,input[type="file"]{width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:14px}
+textarea{min-height:140px;resize:vertical}
+.btn{background:#0066cc;color:#fff;border:none;padding:10px 16px;border-radius:6px;margin:5px;cursor:pointer;font-size:14px}
+.btn:hover{background:#0052aa}
+.btn-box{text-align:center;margin:10px 0}
+.radio-group{display:flex;justify-content:center;gap:15px;margin:10px 0}
+.output{background:#f1f3f5;border-radius:6px;padding:10px;margin-top:10px;max-height:180px;overflow-y:auto;white-space:pre-wrap;font-size:13px}
+.alert{background:#ffebee;color:#b71c1c;padding:10px;border-radius:6px;text-align:center;margin-top:10px;display:none}
+.loading{text-align:center;padding:10px;display:none}
+</style>
+</head>
+<body>
+<div class="container">
+<h1><i class="fa fa-wifi"></i> IPTV 抓包解析工具（潍坊移动分类版）</h1>
+
+<div class="input-group">
+<label>上传抓包文件</label>
+<input type="file" id="file" accept=".txt,.jsp,.xml,.json">
+</div>
+
+<div class="btn-box">
+<button class="btn" onclick="extract()"><i class="fa fa-magic"></i> 提取地址</button>
+</div>
+
+<div class="input-group">
+<label>粘贴抓包数据</label>
+<textarea id="text" placeholder="粘贴潍坊移动抓包数据到这里"></textarea>
+</div>
+
+<div class="btn-box">
+<button class="btn" onclick="downMcast()"><i class="fa fa-download"></i> 下载组播</button>
+<button class="btn" onclick="downUcast()"><i class="fa fa-download"></i> 下载单播</button>
+</div>
+
+<div class="radio-group">
+<label><input type="radio" name="fmt" value="txt" checked> TXT</label>
+<label><input type="radio" name="fmt" value="m3u"> M3U</label>
+</div>
+
+<div class="loading" id="load"><i class="fa fa-spinner fa-spin"></i> 处理中…</div>
+<div class="alert" id="msg"></div>
+
+<div style="margin-top:20px">
+<div style="font-weight:50px;margin-bottom:5px"><i class="fa fa-broadcast-tower"></i> 组播地址</div>
+<div class="output" id="mcast"></div>
+</div>
+
+<div style="margin-top:15px">
+<div style="font-weight:50px;margin-bottom:5px"><i class="fa fa-satellite-dish"></i> 单播地址</div>
+<div class="output" id="ucast"></div>
+</div>
+
+</div>
+
+<script>
+let mcast = '', ucast = '';
+
+function $(id){return document.getElementById(id)}
+
+function showMsg(s){$('msg').innerText=s;$('msg').style.display='block';setTimeout(()=>$('msg').style.display='none',2500)}
+function load(show){$('load').style.display=show?'block':'none'}
+
+// 频道分类与排序规则
+function getChannelPriority(name) {
+  if (/^CCTV/i.test(name)) return 10; // 央视
+  if (/山东|潍坊|诸城/i.test(name)) return 20; // 本地/山东（本省卫视 + 本地台）
+  if (/卫视/i.test(name)) return 30; // 其他卫视
+  if (/数字|CHC|动作电影|家庭影院/i.test(name)) return 40; // 数字
+  if (/少儿|动画|儿童|KAKU/i.test(name)) return 50; // 少儿
+  return 100; // 其他
+}
+
+// 同一分类下的排序：央视按数字，其他按名称
+function sortChannels(a, b) {
+  const pA = getChannelPriority(a.name);
+  const pB = getChannelPriority(b.name);
+  if (pA !== pB) return pA - pB;
+
+  // 央视频道：提取数字排序
+  const cctvRegex = /CCTV-(\d+)/i;
+  const aMatch = a.name.match(cctvRegex);
+  const bMatch = b.name.match(cctvRegex);
+  if (aMatch && bMatch) {
+    return parseInt(aMatch[1], 10) - parseInt(bMatch[1], 10);
+  }
+
+  // 其他频道：按名称拼音排序
+  return a.name.localeCompare(b.name, 'zh-CN');
+}
+
+function extract(){
+  let t = $('text').value;
+  if(!t){showMsg('请粘贴或上传数据');return}
+  load(1);
+  setTimeout(()=>{
+    // 第一步：提取所有标记点
+    const points = [];
+    // 扫描 name
+    const nameRegex = /"name"\s*:\s*"([^"]+)"/g;
+    let match;
+    while ((match = nameRegex.exec(t)) !== null) {
+      points.push({ type: 'name', value: match[1].trim(), pos: match.index });
+    }
+    // 扫描 playurl (rtp://)
+    const playurlRegex = /"playurl"\s*:\s*"(rtp:\/\/[^"]+)"/g;
+    while ((match = playurlRegex.exec(t)) !== null) {
+      points.push({ type: 'playurl', value: match[1].trim(), pos: match.index });
+    }
+    // 扫描 timeshifturl (rtsp://)
+    const timeshifturlRegex = /"timeshifturl"\s*:\s*"(rtsp:\/\/[^"]+)"/g;
+    while ((match = timeshifturlRegex.exec(t)) !== null) {
+      points.push({ type: 'timeshifturl', value: match[1].trim(), pos: match.index });
+    }
+
+    if (points.length === 0) {
+      showMsg('未找到任何频道数据');
+      load(0);
+      return;
+    }
+
+    // 第二步：按位置排序，然后按顺序配对
+    points.sort((a, b) => a.pos - b.pos);
+    const channels = [];
+    let currentChannel = null;
+
+    points.forEach(point => {
+      if (point.type === 'name') {
+        if (currentChannel) {
+          channels.push(currentChannel);
+        }
+        currentChannel = { name: point.value, playurl: '', timeshifturl: '' };
+      } else if (currentChannel) {
+        if (point.type === 'playurl') {
+          currentChannel.playurl = point.value;
+        } else if (point.type === 'timeshifturl') {
+          currentChannel.timeshifturl = point.value;
+        }
+      }
+    });
+    if (currentChannel) {
+      channels.push(currentChannel);
+    }
+
+    // 第三步：过滤掉无效频道和分类
+    const invalidNames = ['全部', '高清', '广播', '央视', '卫视', '本地', '少儿', '特色频道', '电视直播'];
+    const validChannels = channels.filter(c => 
+      c.name && 
+      !invalidNames.includes(c.name) && 
+      (c.playurl || c.timeshifturl)
+    );
+
+    if (validChannels.length === 0) {
+      showMsg('未找到有效频道');
+      load(0);
+      return;
+    }
+
+    // 第四步：按优先级排序
+    validChannels.sort(sortChannels);
+
+    // 第五步：生成结果
+    const mcastList = [];
+    const ucastList = [];
+
+    validChannels.forEach(channel => {
+      const { name, playurl, timeshifturl } = channel;
+      if (playurl) {
+        let cleanUrl = playurl.includes('?') ? playurl.split('?')[0] : playurl;
+        mcastList.push(name + ',' + cleanUrl);
+      }
+      if (timeshifturl) {
+        let cleanUrl = timeshifturl.includes('.smil') ? timeshifturl.split('.smil')[0] + '.smil' : timeshifturl;
+        ucastList.push(name + ',' + cleanUrl);
+      }
+    });
+
+    mcast = mcastList.join('\n');
+    ucast = ucastList.join('\n');
+
+    $('mcast').innerText = mcast || '无';
+    $('ucast').innerText = ucast || '无';
+
+    if (!mcast && !ucast) {
+      showMsg('未识别到有效地址');
+    }
+    load(0);
+  }, 300);
+}
+
 function save(content, type){
   if(!content){showMsg('请先提取'+type);return}
   let fmt = document.querySelector('input[name="fmt"]:checked').value;
@@ -54,3 +257,17 @@ function save(content, type){
   a.download = name;
   a.click();
 }
+
+function downMcast(){save(mcast,'组播')}
+function downUcast(){save(ucast,'单播')}
+
+$('file').onchange = function(){
+  let f = this.files[0];
+  if(!f)return;
+  let rd=new FileReader();
+  rd.onload=e=>{$('text').value=e.target.result;extract()}
+  rd.readAsText(f)
+}
+</script>
+</body>
+</html>
