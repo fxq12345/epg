@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IPTV 抓包解析工具 | 个人仓库版</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#f6f7f9;padding:15px;color:#222}
+.container{max-width:700px;margin:0 auto;background:#fff;border-radius:10px;padding:20px;box-shadow:0 2px 10px rgba(0,0,0,0.08)}
+h1{text-align:center;color:#0066cc;margin-bottom:20px;font-size:22px}
+.input-group{margin-bottom:15px}
+.input-group label{display:block;margin-bottom:6px;font-weight:500}
+textarea,input[type="file"]{width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:14px}
+textarea{min-height:140px;resize:vertical}
+.btn{background:#0066cc;color:#fff;border:none;padding:10px 16px;border-radius:6px;margin:5px;cursor:pointer;font-size:14px}
+.btn:hover{background:#0052aa}
+.btn-box{text-align:center;margin:10px 0}
+.radio-group{display:flex;justify-content:center;gap:15px;margin:10px 0}
+.output{background:#f1f3f5;border-radius:6px;padding:10px;margin-top:10px;max-height:180px;overflow-y:auto;white-space:pre-wrap;font-size:13px}
+.alert{background:#ffebee;color:#b71c1c;padding:10px;border-radius:6px;text-align:center;margin-top:10px;display:none}
+.loading{text-align:center;padding:10px;display:none}
+</style>
+</head>
+<body>
+<div class="container">
+<h1><i class="fa fa-wifi"></i> IPTV 抓包数据解析工具</h1>
+
+<div class="input-group">
+<label>上传抓包文件</label>
+<input type="file" id="file" accept=".txt,.jsp,.xml">
+</div>
+
+<div class="btn-box">
+<button class="btn" onclick="extract()"><i class="fa fa-magic"></i> 提取地址</button>
+</div>
+
+<div class="input-group">
+<label>粘贴抓包数据</label>
+<textarea id="text" placeholder="粘贴数据到这里"></textarea>
+</div>
+
+<div class="btn-box">
+<button class="btn" onclick="downMcast()"><i class="fa fa-download"></i> 下载组播</button>
+<button class="btn" onclick="downUcast()"><i class="fa fa-download"></i> 下载单播</button>
+</div>
+
+<div class="radio-group">
+<label><input type="radio" name="fmt" value="txt" checked> TXT</label>
+<label><input type="radio" name="fmt" value="m3u"> M3U</label>
+</div>
+
+<div class="loading" id="load"><i class="fa fa-spinner fa-spin"></i> 处理中…</div>
+<div class="alert" id="msg"></div>
+
+<div style="margin-top:20px">
+<div style="font-weight:50px;margin-bottom:5px"><i class="fa fa-broadcast-tower"></i> 组播地址</div>
+<div class="output" id="mcast"></div>
+</div>
+
+<div style="margin-top:15px">
+<div style="font-weight:50px;margin-bottom:5px"><i class="fa fa-satellite-dish"></i> 单播地址</div>
+<div class="output" id="ucast"></div>
+</div>
+
+</div>
+
+<script>
+let mcast = '', ucast = '';
+
+function $(id){return document.getElementById(id)}
+
+function showMsg(s){$('msg').innerText=s;$('msg').style.display='block';setTimeout(()=>$('msg').style.display='none',2500)}
+function load(show){$('load').style.display=show?'block':'none'}
+
+function extract(){
+  let t = $('text').value;
+  if(!t){showMsg('请粘贴或上传数据');return}
+  load(1);
+  setTimeout(()=>{
+    doMcast(t);
+    doUcast(t);
+    load(0);
+    if(!mcast && !ucast) showMsg('未识别到地址')
+  },300)
+}
+
+function doMcast(s){
+  let r = /ChannelName="([^"]+)".*?igmp:\/\/(\d+\.\d+\.\d+\.\d+):(\d+)/g;
+  let set = new Set();
+  let m;
+  while((m=r.exec(s))!=null){
+    let n = m[1].trim();
+    let a = `rtp://${m[2]}:${m[3]}`;
+    set.add(n+','+a);
+  }
+  mcast = Array.from(set).join('\n');
+  $('mcast').innerText = mcast || '无'
+}
+
+function doUcast(s){
+  let r = /ChannelName="([^"]+)".*?(rtsp:\/\/\d+\.\d+\.\d+\.\d+\/[^"]+)/g;
+  let set = new Set();
+  let m;
+  while((m=r.exec(s))!=null){
+    let n = m[1].trim();
+    let u = m[2];
+    if(u.includes('.smil')) u = u.split('.smil')[0]+'.smil';
+    set.add(n+','+u);
+  }
+  ucast = Array.from(set).join('\n');
+  $('ucast').innerText = ucast || '无'
+}
+
+function save(content, type){
+  if(!content){showMsg('请先提取'+type);return}
+  let fmt = document.querySelector('input[name="fmt"]:checked').value;
+  let name = `IPTV_${type}.${fmt}`;
+  let c;
+  if(fmt==='txt'){
+    c=content
+  }else{
+    c='#EXTM3U x-tvg-url="https://epg.v1.mk/fy.xml"\n';
+    content.split('\n').forEach(line=>{
+      let [n,u]=line.split(',');
+      if(n&&u) c+=`#EXTINF:-1 tvg-name="${n}" group-title="${type}",${n}\n${u}\n`
+    })
+  }
+  let blob = new Blob([c],{type:'text/plain'});
+  let a = document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=name;
+  a.click();
+}
+
+function downMcast(){save(mcast,'组播')}
+function downUcast(){save(ucast,'单播')}
+
+$('file').onchange = function(){
+  let f = this.files[0];
+  if(!f)return;
+  let rd=new FileReader();
+  rd.onload=e=>{$('text').value=e.target.result;extract()}
+  rd.readAsText(f)
+}
+</script>
+</body>
+</html>
