@@ -81,7 +81,7 @@ class EPGGenerator:
         session.mount("http://", adapter)
         session.mount("https://", adapter)
         session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept": "application/xml, */*",
             "Accept-Encoding": "gzip, deflate"
         })
@@ -305,7 +305,4 @@ class EPGGenerator:
         with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(sources))) as executor:
             future_to_source = {executor.submit(self.fetch_single_source, s): s for s in sources}
             for future in as_completed(future_to_source):
-                source = future_to_source[future]
-                try:
-                    success, _, xml_tree = future.result()
-                    if success
+                source = future_to_source[
