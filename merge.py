@@ -149,7 +149,6 @@ class EPGGenerator:
             if not display_name or display_name in self.channel_ids:
                 continue
 
-            # 关键：channel id 和 display-name 完全一致，和你截图里的格式一模一样
             self.orig_id_to_final_id[orig_id] = display_name
             ch.set("id", display_name)
             self.all_channels.append(ch)
@@ -186,14 +185,11 @@ class EPGGenerator:
             if not final_id or final_id not in self.channel_ids:
                 continue
 
-            # 关键：programme 的 channel 属性和 channel id 完全一致
             p.set("channel", final_id)
             
-            # iHOT频道时间+8小时
             if "iHOT" in final_id or "ihot" in final_id.lower():
                 self.adjust_program_time(p, hours=+8)
 
-            # 解析时间并过滤范围（今天前后各7天）
             st = self.parse_program_time(p.get("start", ""))
             if not st:
                 continue
@@ -221,8 +217,15 @@ class EPGGenerator:
         tree = self.build_xml_tree()
         xml_str = etree.tostring(tree, encoding="utf-8", xml_declaration=True, pretty_print=True)
         gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
+
+        # 关键修复：在压缩包内写入带 .xml 后缀的文件，让酷9能识别
         with gzip.open(gz_path, "wb") as f:
+            f.write(b'\x1f\x8b\x08\x08' + 
+                    (0).to_bytes(4, 'little') + 
+                    b'\x02\x03' + 
+                    b'epg.xml' + b'\x00')
             f.write(xml_str)
+
         logging.info(f"✅ 已生成：{gz_path}")
         logging.info(f"📺 频道：{len(self.all_channels)} | 🎬 节目：{len(self.all_programs)}")
 
