@@ -299,4 +299,8 @@ class EPGGenerator:
             logging.info(f"时间调整统计: iHOT系列{ihot_count}个, 其他频道{other_count}个")
 
     def fetch_all_sources(self, sources: List[str]) -> bool:
-        """批量处理所有EPG源 - 
+        """批量处理所有EPG源"""
+        self.pre_fetch_program_channels(sources)
+        successful_sources = 0
+        with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(sources))) as executor:
+            future
