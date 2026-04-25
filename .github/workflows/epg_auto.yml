@@ -1,4 +1,4 @@
-name: Auto Update EPG (最终稳定版)
+name: Auto Update EPG (最终稳定版-仅GZ)
 
 on:
   schedule:
@@ -36,14 +36,14 @@ jobs:
           python3 merge.py
           echo "=== 生成完成 ==="
 
-      - name: 验证并推送
+      - name: 仅保留GZ并推送
         run: |
           if [ ! -f "output/epg.gz" ]; then
-            echo "❌ 未生成EPG"
+            echo "❌ 未生成EPG压缩包"
             exit 1
           fi
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add output/
+          git add output/epg.gz
           git commit -m "EPG更新 $(date)" || exit 0
           git push origin master
