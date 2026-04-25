@@ -97,7 +97,7 @@ class EPGGenerator:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 sources = []
                 for line_num, line in enumerate(f, 1):
-                    line = strip()
+                    line = line.strip()
                     if line and not line.startswith("#"):
                         if line.startswith(("http://", "https://")):
                             sources.append(line)
@@ -299,10 +299,4 @@ class EPGGenerator:
             logging.info(f"时间调整统计: iHOT系列{ihot_count}个, 其他频道{other_count}个")
 
     def fetch_all_sources(self, sources: List[str]) -> bool:
-        """批量处理所有EPG源"""
-        self.pre_fetch_program_channels(sources)
-        successful_sources = 0
-        # 修复点：完整的字典推导式，所有括号闭合
-        with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(sources))) as executor:
-            future_to_source = {executor.submit(self.fetch_single_source, s): s for s in sources}
-            # 修复点：for循环完整，包含缩进
+        """批量处理所有EPG源 - 
