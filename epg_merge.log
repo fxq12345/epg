@@ -1,0 +1,73 @@
+2026-04-25 13:44:30,058 - INFO - 读取配置完成，共找到 5 个源
+2026-04-25 13:44:30,058 - INFO - 开始预抓取频道映射...
+2026-04-25 13:44:30,058 - INFO - 🔄 第1次尝试抓取：https://epg.27481716.xyz/epg.xml
+2026-04-25 13:44:58,604 - WARNING - ❌ 抓取失败[1/3] https://epg.27481716.xyz/epg.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:44:59,404 - INFO - 🔄 第2次尝试抓取：https://epg.27481716.xyz/epg.xml
+2026-04-25 13:45:22,311 - WARNING - ❌ 抓取失败[2/3] https://epg.27481716.xyz/epg.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:45:23,111 - INFO - 🔄 第3次尝试抓取：https://epg.27481716.xyz/epg.xml
+2026-04-25 13:45:33,609 - WARNING - ❌ 抓取失败[3/3] https://epg.27481716.xyz/epg.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:45:34,410 - ERROR - 💥 全部重试失败 https://epg.27481716.xyz/epg.xml | 耗时 64.35s
+2026-04-25 13:45:34,411 - INFO - 🔄 第1次尝试抓取：https://e.erw.cc/all.xml
+2026-04-25 13:45:45,498 - WARNING - ❌ 抓取失败[1/3] https://e.erw.cc/all.xml | 错误：522 Server Error: Connect origin timed out for url: https://
+2026-04-25 13:45:46,298 - INFO - 🔄 第2次尝试抓取：https://e.erw.cc/all.xml
+2026-04-25 13:45:56,748 - WARNING - ❌ 抓取失败[2/3] https://e.erw.cc/all.xml | 错误：522 Server Error: Connect origin timed out for url: https://
+2026-04-25 13:45:57,549 - INFO - 🔄 第3次尝试抓取：https://e.erw.cc/all.xml
+2026-04-25 13:46:08,247 - WARNING - ❌ 抓取失败[3/3] https://e.erw.cc/all.xml | 错误：522 Server Error: Connect origin timed out for url: https://
+2026-04-25 13:46:09,047 - ERROR - 💥 全部重试失败 https://e.erw.cc/all.xml | 耗时 34.64s
+2026-04-25 13:46:09,047 - INFO - 🔄 第1次尝试抓取：https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz
+2026-04-25 13:46:09,629 - INFO - ✅ 成功抓取 [gz] https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz | 耗时 0.08s | 频道 534 | 节目 132945 | 重试 0 次
+2026-04-25 13:46:10,245 - INFO - 🔄 第1次尝试抓取：http://epg.51zmt.top:8000/e.xml
+2026-04-25 13:46:13,948 - WARNING - ❌ 抓取失败[1/3] http://epg.51zmt.top:8000/e.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:14,748 - INFO - 🔄 第2次尝试抓取：http://epg.51zmt.top:8000/e.xml
+2026-04-25 13:46:15,970 - WARNING - ❌ 抓取失败[2/3] http://epg.51zmt.top:8000/e.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:16,770 - INFO - 🔄 第3次尝试抓取：http://epg.51zmt.top:8000/e.xml
+2026-04-25 13:46:17,990 - WARNING - ❌ 抓取失败[3/3] http://epg.51zmt.top:8000/e.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:18,791 - ERROR - 💥 全部重试失败 http://epg.51zmt.top:8000/e.xml | 耗时 8.55s
+2026-04-25 13:46:18,791 - INFO - 🔄 第1次尝试抓取：https://raw.githubusercontent.com/fanmingming/live/main/e.xml
+2026-04-25 13:46:19,031 - WARNING - ❌ 抓取失败[1/3] https://raw.githubusercontent.com/fanmingming/live/main/e.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:19,831 - INFO - 🔄 第2次尝试抓取：https://raw.githubusercontent.com/fanmingming/live/main/e.xml
+2026-04-25 13:46:19,852 - WARNING - ❌ 抓取失败[2/3] https://raw.githubusercontent.com/fanmingming/live/main/e.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:20,652 - INFO - 🔄 第3次尝试抓取：https://raw.githubusercontent.com/fanmingming/live/main/e.xml
+2026-04-25 13:46:20,669 - WARNING - ❌ 抓取失败[3/3] https://raw.githubusercontent.com/fanmingming/live/main/e.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:21,469 - ERROR - 💥 全部重试失败 https://raw.githubusercontent.com/fanmingming/live/main/e.xml | 耗时 2.68s
+2026-04-25 13:46:21,469 - INFO - 预抓取完成，建立 533 个名称-ID映射
+2026-04-25 13:46:21,525 - INFO - 🔄 第1次尝试抓取：https://epg.27481716.xyz/epg.xml
+2026-04-25 13:46:21,525 - INFO - 🔄 第1次尝试抓取：https://e.erw.cc/all.xml
+2026-04-25 13:46:21,526 - INFO - 🔄 第1次尝试抓取：https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz
+2026-04-25 13:46:22,104 - INFO - ✅ 成功抓取 [gz] https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz | 耗时 0.01s | 频道 534 | 节目 132945 | 重试 0 次
+2026-04-25 13:46:22,305 - INFO - 🔄 第1次尝试抓取：http://epg.51zmt.top:8000/e.xml
+2026-04-25 13:46:24,209 - WARNING - ❌ 抓取失败[1/3] http://epg.51zmt.top:8000/e.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:25,031 - INFO - 🔄 第2次尝试抓取：http://epg.51zmt.top:8000/e.xml
+2026-04-25 13:46:26,739 - WARNING - ❌ 抓取失败[2/3] http://epg.51zmt.top:8000/e.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:27,687 - INFO - 🔄 第3次尝试抓取：http://epg.51zmt.top:8000/e.xml
+2026-04-25 13:46:28,805 - INFO - 时间调整完成：iHOT+8小时 2167 条
+2026-04-25 13:46:29,507 - WARNING - ❌ 抓取失败[3/3] http://epg.51zmt.top:8000/e.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:30,308 - ERROR - 💥 全部重试失败 http://epg.51zmt.top:8000/e.xml | 耗时 8.00s
+2026-04-25 13:46:30,308 - INFO - 🔄 第1次尝试抓取：https://raw.githubusercontent.com/fanmingming/live/main/e.xml
+2026-04-25 13:46:30,324 - WARNING - ❌ 抓取失败[1/3] https://raw.githubusercontent.com/fanmingming/live/main/e.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:31,125 - INFO - 🔄 第2次尝试抓取：https://raw.githubusercontent.com/fanmingming/live/main/e.xml
+2026-04-25 13:46:31,142 - WARNING - ❌ 抓取失败[2/3] https://raw.githubusercontent.com/fanmingming/live/main/e.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:31,829 - WARNING - ❌ 抓取失败[1/3] https://e.erw.cc/all.xml | 错误：522 Server Error: Connect origin timed out for url: https://
+2026-04-25 13:46:31,942 - INFO - 🔄 第3次尝试抓取：https://raw.githubusercontent.com/fanmingming/live/main/e.xml
+2026-04-25 13:46:31,959 - WARNING - ❌ 抓取失败[3/3] https://raw.githubusercontent.com/fanmingming/live/main/e.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:32,630 - INFO - 🔄 第2次尝试抓取：https://e.erw.cc/all.xml
+2026-04-25 13:46:32,760 - ERROR - 💥 全部重试失败 https://raw.githubusercontent.com/fanmingming/live/main/e.xml | 耗时 2.45s
+2026-04-25 13:46:34,341 - WARNING - ❌ 抓取失败[1/3] https://epg.27481716.xyz/epg.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:35,142 - INFO - 🔄 第2次尝试抓取：https://epg.27481716.xyz/epg.xml
+2026-04-25 13:46:37,984 - WARNING - ❌ 抓取失败[2/3] https://epg.27481716.xyz/epg.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:38,784 - INFO - 🔄 第3次尝试抓取：https://epg.27481716.xyz/epg.xml
+2026-04-25 13:46:42,966 - WARNING - ❌ 抓取失败[2/3] https://e.erw.cc/all.xml | 错误：522 Server Error: Connect origin timed out for url: https://
+2026-04-25 13:46:43,767 - INFO - 🔄 第3次尝试抓取：https://e.erw.cc/all.xml
+2026-04-25 13:46:54,029 - WARNING - ❌ 抓取失败[3/3] https://e.erw.cc/all.xml | 错误：522 Server Error: Connect origin timed out for url: https://
+2026-04-25 13:46:54,829 - ERROR - 💥 全部重试失败 https://e.erw.cc/all.xml | 耗时 33.30s
+2026-04-25 13:46:56,152 - WARNING - ❌ 抓取失败[3/3] https://epg.27481716.xyz/epg.xml | 错误：Not a gzipped file (b'<?')
+2026-04-25 13:46:56,952 - ERROR - 💥 全部重试失败 https://epg.27481716.xyz/epg.xml | 耗时 35.43s
+2026-04-25 13:46:56,964 - INFO - ============================================================
+2026-04-25 13:46:56,964 - INFO - 📌 抓取汇总：
+2026-04-25 13:46:56,964 - INFO - ✅ 成功源数量：1
+2026-04-25 13:46:56,964 - INFO - ❌ 失败源数量：4
+2026-04-25 13:46:56,964 - INFO - 📥 总频道数：534
+2026-04-25 13:46:56,964 - INFO - 📤 总节目数：132945
+2026-04-25 13:46:56,964 - INFO - ============================================================
+2026-04-25 13:46:57,610 - INFO - ✅ 最终EPG已保存 -> output/epg.gz
+2026-04-25 13:46:57,610 - INFO - 📊 最终统计：频道 523 | 节目 131049
