@@ -220,3 +220,13 @@
 2026-04-25 15:20:47,059 - INFO - ============================================================
 2026-04-25 15:20:48,970 - INFO - ✅ 最终EPG已保存 -> output/epg.gz
 2026-04-25 15:20:48,970 - INFO - 📊 最终统计：频道 2193 | 节目 301730
+2026-04-25 15:41:36,462 - INFO - 读取配置完成，共找到 6 个源
+2026-04-25 15:41:38,278 - INFO - ✅ 保留今天前后各7天，共14天有效节目：130884 条
+2026-04-25 15:41:40,871 - INFO - ✅ 保留今天前后各7天，共14天有效节目：131926 条
+2026-04-25 15:42:10,980 - WARNING - Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='epg.27481716.xyz', port=443): Read timed out. (read timeout=30)")': /epg.xml
+2026-04-25 15:42:39,681 - INFO - ✅ 保留今天前后各7天，共14天有效节目：17528 条
+2026-04-25 15:42:50,523 - WARNING - 获取内容失败: https://e.erw.cc/all.xml | 522 Server Error: Connect origin timed out for url: https://
+2026-04-25 15:42:53,603 - INFO - ✅ 保留今天前后各7天，共14天有效节目：2625 条
+2026-04-25 15:42:53,870 - INFO - ✅ 保留今天前后各7天，共14天有效节目：8875 条
+2026-04-25 15:42:55,703 - INFO - ✅ 已生成：output/epg.gz
+2026-04-25 15:42:55,703 - INFO - 📺 频道：2163 | 🎬 节目：291838
