@@ -33,7 +33,7 @@ logging.basicConfig(
 # 全频道手动映射表（补全所有你提的卫视/特色频道，数字ID无重复）
 COOL9_ID_MAPPING = {
     # CCTV基础频道
-    "1": "CCTV1", "2": "CCTV2", "3": "CCTV3", "4": "CCTV4", 
+    "1": "CCTV1", "2": "CCTV2", "3": "CCTV3", "4": "CCTV4",
     "5": "CCTV5", "6": "CCTV6", "7": "CCTV7", "8": "CCTV8",
     "9": "CCTV9", "10": "CCTV10", "11": "CCTV11", "12": "CCTV12",
     "13": "CCTV13", "14": "CCTV14", "15": "CCTV15", "16": "CCTV16",
@@ -92,7 +92,7 @@ class EPGGenerator:
         if not os.path.exists(CONFIG_FILE):
             logging.error(f"配置文件不存在: {CONFIG_FILE}")
             raise FileNotFoundError(f"找不到配置文件: {CONFIG_FILE}")
-            
+
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 sources = []
@@ -103,12 +103,12 @@ class EPGGenerator:
                             sources.append(line)
                         else:
                             logging.warning(f"第{line_num}行格式错误，已跳过: {line}")
-                
-                if len(sources) < 1:
-                    logging.error(f"未找到有效EPG源，程序退出")
-                    raise ValueError("无有效EPG源")
-                
-                return sources[:8]
+
+            if len(sources) < 1:
+                logging.error(f"未找到有效EPG源，程序退出")
+                raise ValueError("无有效EPG源")
+
+            return sources[:8]
         except Exception as e:
             logging.error(f"读取配置文件失败: {str(e)}")
             raise
@@ -124,22 +124,22 @@ class EPGGenerator:
         try:
             start_time = time.time()
             logging.info(f"开始抓取: {source}")
-            
+
             response = self.session.get(source, timeout=TIMEOUT)
             response.raise_for_status()
-            
+
             if source.endswith('.gz'):
                 content = gzip.decompress(response.content).decode('utf-8')
             else:
                 content = response.text
-                
+
             content_clean = self.clean_xml_content(content)
             xml_tree = etree.fromstring(content_clean.encode('utf-8'))
-            
+
             cost_time = time.time() - start_time
             logging.info(f"成功抓取: {source} | 耗时: {cost_time:.2f}s")
             return True, source, xml_tree
-            
+
         except Exception as e:
             logging.error(f"抓取失败 {source}: {str(e)}")
             return False, source, None
@@ -158,25 +158,25 @@ class EPGGenerator:
             try:
                 response = self.session.get(source, timeout=TIMEOUT)
                 response.raise_for_status()
-                
+
                 if source.endswith('.gz'):
                     content = gzip.decompress(response.content).decode('utf-8')
                 else:
                     content = response.text
-                    
+
                 content_clean = self.clean_xml_content(content)
                 xml_tree = etree.fromstring(content_clean.encode('utf-8'))
-                
+
                 programs = xml_tree.xpath("//programme")
                 channels = xml_tree.xpath("//channel")
-                
+
                 channel_id_to_name = {}
                 for ch in channels:
                     cid = ch.get("id", "").strip()
                     display_names = ch.xpath(".//display-name/text()")
                     ch_name = display_names[0].strip() if display_names else cid
                     channel_id_to_name[cid] = ch_name
-                
+
                 for program in programs:
                     prog_cid = program.get("channel", "").strip()
                     if prog_cid.isdigit() and prog_cid in channel_id_to_name:
@@ -184,34 +184,34 @@ class EPGGenerator:
                         normalized_name = self.normalize_channel_name(ch_name)
                         if normalized_name and normalized_name not in self.program_channel_map:
                             self.program_channel_map[normalized_name] = prog_cid
-                            
+
             except Exception as e:
                 logging.warning(f"预抓取{source}失败: {str(e)}")
-        
+
         logging.info(f"预抓取完成，建立{len(self.program_channel_map)}个名称→数字ID映射")
 
     def process_channels(self, xml_tree, source: str) -> int:
         """处理频道：映射数字ID、去重、过滤国外频道"""
         channels = xml_tree.xpath("//channel")
         add_count = 0
-        
+
         for channel in channels:
             original_cid = channel.get("id", "").strip()
             if not original_cid:
                 continue
-            
+
             display_names = channel.xpath(".//display-name/text()")
             channel_name = display_names[0].strip() if display_names else original_cid
             normalized_name = self.normalize_channel_name(channel_name)
             if not normalized_name:
                 continue
-            
+
             # 过滤国外频道
             if any(kw in channel_name for kw in FOREIGN_KEYWORDS):
                 continue
             if any(kw in channel_name for kw in DOMESTIC_SPECIAL):
                 pass
-            
+
             # 优先匹配预抓取映射，再匹配手动映射
             final_cid = original_cid
             if normalized_name in self.program_channel_map:
@@ -220,7 +220,7 @@ class EPGGenerator:
                 programs = xml_tree.xpath('//programme[contains(@channel, "{}")]'.format(normalized_name[:4]))
                 if programs:
                     final_cid = programs[0].get("channel", "").strip()
-            
+
             # 手动映射表兜底匹配
             if normalized_name in self.name_to_final_id:
                 final_cid = self.name_to_final_id[normalized_name]
@@ -229,19 +229,19 @@ class EPGGenerator:
                     final_cid = COOL9_ID_MAPPING[original_cid]
                 elif channel_name in COOL9_ID_MAPPING:
                     final_cid = COOL9_ID_MAPPING[channel_name]
-                
+
                 if not final_cid.isdigit() and normalized_name in self.program_channel_map:
                     final_cid = self.program_channel_map[normalized_name]
-            
+
             if final_cid in self.channel_ids or not final_cid:
                 continue
-            
+
             channel.set("id", final_cid)
             self.channel_ids.add(final_cid)
             self.name_to_final_id[normalized_name] = final_cid
             self.all_channels.append(channel)
             add_count += 1
-                
+
         logging.info(f"从{source}处理到{add_count}个新频道")
         return add_count
 
@@ -278,7 +278,7 @@ class EPGGenerator:
         programs = xml_tree.xpath("//programme")
         ihot_count = 0
         other_count = 0
-        
+
         for program in programs:
             prog_cid = program.get("channel", "").strip()
             if prog_cid.isdigit() and prog_cid in self.channel_ids:
@@ -294,7 +294,7 @@ class EPGGenerator:
                         self.adjust_program_time(program, hours=0)
                         other_count += 1
                 self.all_programs.append(program)
-        
+
         if ihot_count > 0 or other_count > 0:
             logging.info(f"时间调整统计: iHOT系列{ihot_count}个, 其他频道{other_count}个")
 
@@ -304,4 +304,8 @@ class EPGGenerator:
         successful_sources = 0
         with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(sources))) as executor:
             future_to_source = {executor.submit(self.fetch_single_source, s): s for s in sources}
-            for future in as_completed(future_to
+            for future in as_completed(future_to_source):
+                source = future_to_source[future]
+                try:
+                    success, _, xml_tree = future.result()
+                    if success
