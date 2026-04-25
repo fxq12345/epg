@@ -302,6 +302,7 @@ class EPGGenerator:
         """批量处理所有EPG源"""
         self.pre_fetch_program_channels(sources)
         successful_sources = 0
-        # 修复点：完整的字典推导式，包含闭合方括号
+        # 修复点：完整的字典推导式，所有括号闭合
         with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(sources))) as executor:
-            future_to_source = {executor.submit(self.fetch_single_source,
+            future_to_source = {executor.submit(self.fetch_single_source, s): s for s in sources}
+            for
