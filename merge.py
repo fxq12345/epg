@@ -81,7 +81,7 @@ class EPGGenerator:
         session.mount("http://", adapter)
         session.mount("https://", adapter)
         session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
             "Accept": "application/xml, */*",
             "Accept-Encoding": "gzip, deflate"
         })
@@ -284,7 +284,7 @@ class EPGGenerator:
             if prog_cid.isdigit() and prog_cid in self.channel_ids:
                 channel_name = self.get_channel_name_by_id(prog_cid)
                 if channel_name:
-                    # 仅匹配小写i+大写HOT，与汉字「爱」无任何关联
+                    # 仅匹配小写i+大写HOT，与汉字「爱」无关联
                     is_ihot = "iHOT" in channel_name
                     if is_ihot:
                         self.adjust_program_time(program, hours=+8)
@@ -302,6 +302,6 @@ class EPGGenerator:
         """批量处理所有EPG源"""
         self.pre_fetch_program_channels(sources)
         successful_sources = 0
+        # 修复点：完整的字典推导式，包含闭合方括号
         with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(sources))) as executor:
-            # 修复点：完整的字典推导式，无语法截断
-            future_to_source = {exec
+            future_to_source = {executor.submit(self.fetch_single_source,
