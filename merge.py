@@ -216,17 +216,19 @@ class EPGGenerator:
 
         tree = self.build_xml_tree()
         xml_str = etree.tostring(tree, encoding="utf-8", xml_declaration=True, pretty_print=True)
-        gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
 
-        # 关键修复：在压缩包内写入带 .xml 后缀的文件，让酷9能识别
-        with gzip.open(gz_path, "wb") as f:
-            f.write(b'\x1f\x8b\x08\x08' + 
-                    (0).to_bytes(4, 'little') + 
-                    b'\x02\x03' + 
-                    b'epg.xml' + b'\x00')
+        # 先写一个 epg.xml 文件，再打包
+        xml_path = os.path.join(OUTPUT_DIR, "epg.xml")
+        with open(xml_path, "wb") as f:
             f.write(xml_str)
 
-        logging.info(f"✅ 已生成：{gz_path}")
+        # 再把 epg.xml 打包成 epg.gz
+        gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
+        with open(xml_path, "rb") as f_in:
+            with gzip.open(gz_path, "wb") as f_out:
+                f_out.writelines(f_in)
+
+        logging.info(f"✅ 已生成：{xml_path} 和 {gz_path}")
         logging.info(f"📺 频道：{len(self.all_channels)} | 🎬 节目：{len(self.all_programs)}")
 
     def run(self):
