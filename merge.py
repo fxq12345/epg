@@ -240,7 +240,7 @@ class EPGGenerator:
                 continue
 
             ch.set("id", final_id)
-            self.all_channels.append(chan)
+            self.all_channels.append(ch)
             self.channel_ids.add(final_id)
             self.name_to_final_id[norm_name] = final_id
             add_count += 1
@@ -372,4 +372,4 @@ class EPGGenerator:
 
         logging.info("=" * 60)
         logging.info(f"📌 抓取汇总：")
-        logging.info(f"✅ 成功源数量：{total_success}
+        logging.info(f"✅ 成功源数量：{total
