@@ -371,5 +371,4 @@ class EPGGenerator:
                     total_fail += 1
 
         logging.info("=" * 60)
-        logging.info(f"📌 抓取汇总：")
-        logging.info(f"✅ 成功源数量：{total
+        logging.info(f"📌
