@@ -48,7 +48,7 @@ class EPGGenerator:
         self.channel_ids: Set[str] = set()
         self.all_channels: List = []
         self.all_programs: List = []
-        self.orig_id_to_lower_id: Dict[str, str] = {}
+        self.orig_id_to_final_id: Dict[str, str] = {}
 
         # 时间范围：今天0点 - 7天前 到 今天0点 + 7天后
         now = datetime.now()
@@ -112,13 +112,6 @@ class EPGGenerator:
         content = content.replace('& ', '&amp; ')
         return content
 
-    def normalize_channel_name(self, name: str) -> str:
-        # 大小写不敏感 + 去符号，适配酷9匹配
-        name = re.sub(r'[^\u4e00-\u9fff0-9a-zA-Z]', '', name)
-        name = name.lower()
-        name = re.sub(r'^iptv', '', name)
-        return name.strip()
-
     def fetch_single_source(self, source: str) -> Tuple[bool, str, int, int, int]:
         retry_count = 0
         start_time = time.time()
@@ -149,18 +142,18 @@ class EPGGenerator:
             names = ch.xpath(".//display-name/text()")
             if not names:
                 continue
-            name = names[0].strip()
-            lower_id = self.normalize_channel_name(name)
+            display_name = names[0].strip()
 
-            if any(kw in name for kw in FOREIGN_KEYWORDS):
+            if any(kw in display_name for kw in FOREIGN_KEYWORDS):
                 continue
-            if not lower_id or lower_id in self.channel_ids:
+            if not display_name or display_name in self.channel_ids:
                 continue
 
-            self.orig_id_to_lower_id[orig_id] = lower_id
-            ch.set("id", lower_id)
+            # 关键：channel id 和 display-name 完全一致，和你截图里的格式一模一样
+            self.orig_id_to_final_id[orig_id] = display_name
+            ch.set("id", display_name)
             self.all_channels.append(ch)
-            self.channel_ids.add(lower_id)
+            self.channel_ids.add(display_name)
 
     def parse_program_time(self, ts):
         try:
@@ -189,15 +182,15 @@ class EPGGenerator:
         keep = []
         for p in programs:
             orig_cid = p.get("channel", "").strip()
-            lower_id = self.orig_id_to_lower_id.get(orig_cid)
-            if not lower_id or lower_id not in self.channel_ids:
+            final_id = self.orig_id_to_final_id.get(orig_cid)
+            if not final_id or final_id not in self.channel_ids:
                 continue
 
-            # 替换节目ID为标准化名称，适配酷9
-            p.set("channel", lower_id)
+            # 关键：programme 的 channel 属性和 channel id 完全一致
+            p.set("channel", final_id)
             
             # iHOT频道时间+8小时
-            if "ihot" in lower_id:
+            if "iHOT" in final_id or "ihot" in final_id.lower():
                 self.adjust_program_time(p, hours=+8)
 
             # 解析时间并过滤范围（今天前后各7天）
