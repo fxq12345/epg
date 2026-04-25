@@ -35,15 +35,22 @@ jobs:
           rm -rf output/* 2>/dev/null || true
           python3 merge.py
           echo "=== 生成完成 ==="
+          ls -lh output/  # 调试：确认文件存在
 
       - name: 仅保留GZ并推送
         run: |
+          # 检查文件是否存在
           if [ ! -f "output/epg.gz" ]; then
             echo "❌ 未生成EPG压缩包"
             exit 1
           fi
+          echo "✅ epg.gz 存在"
+          
+          # 配置Git
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add output/epg.gz
+          
+          # 强制添加output目录并提交
+          git add -A output/
           git commit -m "EPG更新 $(date)" || exit 0
           git push origin master
