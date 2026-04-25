@@ -240,3 +240,13 @@
 2026-04-25 16:00:07,666 - INFO - ✅ 保留今天前后各7天，共14天有效节目：9302 条
 2026-04-25 16:00:09,247 - INFO - ✅ 已生成：output/epg.gz
 2026-04-25 16:00:09,247 - INFO - 📺 频道：2243 | 🎬 节目：300367
+2026-04-25 16:09:54,493 - INFO - 读取配置完成，共找到 6 个源
+2026-04-25 16:09:54,580 - WARNING - 获取内容失败: https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz | 404 Client Error: Not Found for url: https://raw.githubuserc
+2026-04-25 16:09:57,417 - INFO - ✅ 保留今天前后各7天，共14天有效节目：151388 条
+2026-04-25 16:10:27,481 - WARNING - Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='epg.27481716.xyz', port=443): Read timed out. (read timeout=30)")': /epg.xml
+2026-04-25 16:10:42,385 - INFO - ✅ 保留今天前后各7天，共14天有效节目：17640 条
+2026-04-25 16:10:53,027 - WARNING - 获取内容失败: https://e.erw.cc/all.xml | 522 Server Error: Connect origin timed out for url: https://
+2026-04-25 16:10:56,686 - INFO - ✅ 保留今天前后各7天，共14天有效节目：4225 条
+2026-04-25 16:10:57,382 - INFO - ✅ 保留今天前后各7天，共14天有效节目：28920 条
+2026-04-25 16:10:58,775 - INFO - ✅ 已生成：output/epg.gz
+2026-04-25 16:10:58,775 - INFO - 📺 频道：1902 | 🎬 节目：202173
