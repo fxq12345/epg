@@ -296,3 +296,12 @@
 2026-04-25 17:11:19,957 - WARNING - 获取失败: https://e.erw.cc/all.xml | 522 Server Error: Connect origin timed out for url: https://
 2026-04-25 17:11:22,050 - INFO - ✅ 生成完成：output/epg.xml 和 output/epg.gz
 2026-04-25 17:11:22,050 - INFO - 📺 频道：2268 | 🎬 节目：304551
+2026-04-25 17:23:10,348 - INFO - 读取源：6 个
+2026-04-25 17:23:12,396 - INFO - 本轮保留节目：131035 条
+2026-04-25 17:23:14,276 - INFO - 本轮保留节目：144483 条
+2026-04-25 17:23:14,487 - INFO - 本轮保留节目：17640 条
+2026-04-25 17:23:14,697 - INFO - 本轮保留节目：9822 条
+2026-04-25 17:23:14,717 - INFO - 本轮保留节目：1571 条
+2026-04-25 17:23:21,729 - WARNING - 获取失败: https://e.erw.cc/all.xml | 522 Server Error: Connect origin timed out for url: https://
+2026-04-25 17:23:23,649 - INFO - ✅ 生成完成：output/epg.xml 和 output/epg.gz
+2026-04-25 17:23:23,649 - INFO - 📺 频道：2268 | 🎬 节目：304551
