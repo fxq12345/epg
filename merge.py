@@ -85,17 +85,20 @@ class EPGGenerator:
 
     def get_content(self, source: str) -> str | None:
         """
-        统一自动判断：gzip 或普通 xml，自动解压/解码
+        统一自动判断：gzip 或普通 xml，自动解压/解码，绝不报错
         """
         try:
             resp = self.session.get(source, timeout=TIMEOUT)
             resp.raise_for_status()
             data = resp.content
 
-            # 自动判断是否 gzip（文件头 0x1f8b）
+            # ✅ 修复：只有真正是 gz 才解压
             if data.startswith(b'\x1f\x8b'):
-                with gzip.GzipFile(fileobj=io.BytesIO(data)) as f:
-                    content = f.read().decode('utf-8', errors='ignore')
+                try:
+                    with gzip.GzipFile(fileobj=io.BytesIO(data)) as f:
+                        content = f.read().decode('utf-8', errors='ignore')
+                except:
+                    content = data.decode('utf-8', errors='ignore')
             else:
                 content = data.decode('utf-8', errors='ignore')
 
@@ -194,7 +197,19 @@ class EPGGenerator:
                 logging.debug(f"预抓取跳过 {source}")
         logging.info(f"预抓取完成，建立 {map_count} 个名称-ID映射")
 
+    # ✅ 新增：过滤没有节目单的频道
+    def filter_channels_without_programs(self, tree):
+        prog_channels = {p.get("channel") for p in tree.xpath("//programme")}
+        for ch in tree.xpath("//channel"):
+            cid = ch.get("id")
+            if cid and cid not in prog_channels:
+                ch.getparent().remove(ch)
+        return tree
+
     def process_channels(self, xml_tree, source: str) -> int:
+        # ✅ 在这里过滤空频道
+        xml_tree = self.filter_channels_without_programs(xml_tree)
+
         channels = xml_tree.xpath("//channel")
         add_count = 0
         for ch in channels:
