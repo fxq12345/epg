@@ -18,12 +18,12 @@ OUTPUT_DIR = "output"
 LOG_FILE = "epg_merge.log"
 MAX_WORKERS = 3
 TIMEOUT = 30
-CORE_RETRY_COUNT = 3  # 增加重试次数
+CORE_RETRY_COUNT = 3
 
 # 确保输出目录存在
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 详细日志格式
+# 日志配置
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -85,9 +85,9 @@ class EPGGenerator:
         return session
 
     def read_epg_sources(self) -> List[str]:
-        """读取 config.txt，返回所有有效源（支持gz/xml/其他）"""
+        """读取 config.txt"""
         if not os.path.exists(CONFIG_FILE):
-            logging.warning(f"配置文件 {CONFIG_FILE} 不存在，使用空列表")
+            logging.warning("配置文件不存在，将使用空列表")
             return []
 
         sources = []
@@ -113,10 +113,7 @@ class EPGGenerator:
         return content_clean
 
     def fetch_single_source(self, source: str) -> Tuple[bool, str, int, int, int]:
-        """
-        抓取单个源，并返回详细统计：
-        (是否成功, 源地址, 重试次数, 频道数, 节目数)
-        """
+        """抓取单个源，返回详细统计"""
         retry_count = 0
         start_time = time.time()
 
@@ -127,7 +124,7 @@ class EPGGenerator:
                 resp.raise_for_status()
                 cost = time.time() - start_time
 
-                # 识别内容类型
+                # 识别格式
                 if source.endswith(".gz") or resp.headers.get("Content-Encoding") == "gzip":
                     content = gzip.decompress(resp.content).decode("utf-8", errors="ignore")
                     fmt = "gz"
@@ -141,7 +138,7 @@ class EPGGenerator:
                 content_clean = self.clean_xml_content(content)
                 xml_tree = etree.fromstring(content_clean.encode("utf-8"))
 
-                # 统计频道 & 节目
+                # 统计
                 channels = xml_tree.xpath("//channel")
                 programs = xml_tree.xpath("//programme")
                 chan_cnt = len(channels)
@@ -158,24 +155,15 @@ class EPGGenerator:
 
             except requests.exceptions.RetryError as e:
                 retry_count += 1
-                logging.warning(
-                    f"⚠️  重试失败[{retry_count}/{CORE_RETRY_COUNT}] {source} | 错误：{str(e)[:80]}"
-                )
+                logging.warning(f"⚠️  重试失败[{retry_count}/{CORE_RETRY_COUNT}] {source}")
                 time.sleep(0.5)
             except Exception as e:
                 retry_count += 1
-                logging.warning(
-                    f"❌ 抓取失败[{retry_count}/{CORE_RETRY_COUNT}] {source} | 错误：{str(e)[:80]}"
-                )
+                logging.warning(f"❌ 抓取失败[{retry_count}/{CORE_RETRY_COUNT}] {source} | 错误：{str(e)[:60]}")
                 time.sleep(0.8)
 
-        # 全部重试失败
         cost = time.time() - start_time
-        logging.error(
-            f"💥 所有重试均失败 {source} | "
-            f"耗时 {cost:.2f}s | "
-            f"重试 {CORE_RETRY_COUNT} 次"
-        )
+        logging.error(f"💥 全部重试失败 {source} | 耗时 {cost:.2f}s")
         return False, source, CORE_RETRY_COUNT, 0, 0
 
     def normalize_channel_name(self, name: str) -> str:
@@ -185,7 +173,7 @@ class EPGGenerator:
         return name.strip()
 
     def pre_fetch_program_channels(self, sources: List[str]):
-        """预抓取频道映射，辅助精准匹配"""
+        """预抓取频道映射"""
         logging.info("开始预抓取频道映射...")
         map_count = 0
         for source in sources:
@@ -193,7 +181,6 @@ class EPGGenerator:
                 success, _, _, _, _ = self.fetch_single_source(source)
                 if not success:
                     continue
-                # 这里只做预解析，不写入all_channels
                 resp = self.session.get(source, timeout=TIMEOUT)
                 if source.endswith(".gz"):
                     content = gzip.decompress(resp.content).decode("utf-8")
@@ -211,7 +198,7 @@ class EPGGenerator:
                         self.program_channel_map[norm] = cid
                         map_count += 1
             except Exception as e:
-                logging.debug(f"预抓取跳过 {source}：{str(e)[:60]}")
+                logging.debug(f"预抓取跳过 {source}")
         logging.info(f"预抓取完成，建立 {map_count} 个名称-ID映射")
 
     def process_channels(self, xml_tree, source: str) -> int:
@@ -273,7 +260,7 @@ class EPGGenerator:
         ihot_cnt = 0
         for p in programs:
             cid = p.get("channel", "").strip()
-            if cid not in self.channel_ids:
+            if cid not self.channel_ids:
                 continue
             name = self.get_channel_name_by_id(cid)
             if "iHOT" in name:
@@ -283,10 +270,9 @@ class EPGGenerator:
         logging.info(f"时间调整完成：iHOT+8小时 {ihot_cnt} 条")
 
     def generate_default_epg(self):
-        """兜底：当没有任何源抓取到数据时生成默认EPG"""
+        """兜底：生成默认EPG"""
         logging.warning("⚠️  未抓取到任何有效EPG数据，正在生成默认EPG...")
 
-        # 1. 生成默认频道
         for cid, name in COOL9_ID_MAPPING.items():
             chan = etree.Element("channel", id=cid)
             dn = etree.SubElement(chan, "display-name")
@@ -295,7 +281,6 @@ class EPGGenerator:
             self.channel_ids.add(cid)
             self.name_to_final_id[name] = cid
 
-        # 2. 生成未来7天每天3个默认节目
         now = datetime.now()
         for cid in self.channel_ids:
             chan_name = self.name_to_final_id[cid]
@@ -319,7 +304,7 @@ class EPGGenerator:
         return root
 
     def save_epg(self):
-        """最终生成 epg.gz"""
+        """生成 epg.gz"""
         if not self.all_channels and not self.all_programs:
             self.generate_default_epg()
 
@@ -355,7 +340,6 @@ class EPGGenerator:
                     total_success += 1
                     total_chan += chans
                     total_prog += progs
-                    # 继续处理频道和节目
                     try:
                         resp = self.session.get(src, timeout=TIMEOUT)
                         if src.endswith(".gz"):
@@ -366,9 +350,24 @@ class EPGGenerator:
                         self.process_channels(tree, src)
                         self.process_programs(tree)
                     except Exception as e:
-                        logging.warning(f"处理 {src} 频道/节目失败：{str(e)}")
+                        logging.warning(f"处理 {src} 失败：{str(e)}")
                 else:
                     total_fail += 1
 
+        # 详细汇总日志（核心：无语法错误）
         logging.info("=" * 60)
-        logging.info(f"📌
+        logging.info(f"📌 抓取汇总：")
+        logging.info(f"✅ 成功源数量：{total_success}")
+        logging.info(f"❌ 失败源数量：{total_fail}")
+        logging.info(f"📥 总频道数：{total_chan}")
+        logging.info(f"📤 总节目数：{total_prog}")
+        logging.info("=" * 60)
+
+        self.save_epg()
+
+def main():
+    generator = EPGGenerator()
+    generator.run()
+
+if __name__ == "__main__":
+    main()
