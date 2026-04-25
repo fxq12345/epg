@@ -2,6 +2,7 @@ import os
 import gzip
 import re
 import logging
+import io
 from datetime import datetime, timedelta
 from typing import List, Dict, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -38,6 +39,17 @@ FOREIGN_KEYWORDS = [
     "越南", "印尼", "马来西亚", "新加坡", "澳洲", "欧洲", "美洲",
     "非洲", "俄罗斯", "印度", "巴西"
 ]
+
+# 山东台完整别名映射（和你json里的名字完全对应）
+SD_ALIAS = {
+    "山东齐鲁": ["山东齐鲁", "齐鲁频道", "山东齐鲁hd", "山东齐鲁高清"],
+    "山东体育休闲": ["山东体育", "山东体育hd", "山东体育高清", "山东体育休闲频道"],
+    "山东农科": ["山东农科", "山东农科hd", "山东农科高清", "农科频道"],
+    "山东文旅": ["山东文旅", "文旅频道", "山东影视", "山东文旅频道"],
+    "山东生活": ["山东生活", "生活频道", "山东生活频道"],
+    "山东综艺": ["山东综艺", "综艺频道", "山东综艺频道"],
+    "山东卫视": ["山东卫视", "山东卫视hd", "山东卫视高清"]
+}
 # ==================================================
 
 class EPGGenerator:
@@ -47,6 +59,10 @@ class EPGGenerator:
         self.all_channels: List = []
         self.all_programs: List = []
         self.orig_id_to_final_id: Dict[str, str] = {}
+        self.alias_map: Dict[str, str] = {}
+        for main, aliases in SD_ALIAS.items():
+            for a in aliases:
+                self.alias_map[a] = main
 
         now = datetime.now()
         self.today_start = datetime(now.year, now.month, now.day, 0, 0, 0)
@@ -120,13 +136,17 @@ class EPGGenerator:
 
             if any(kw in display_name for kw in FOREIGN_KEYWORDS):
                 continue
-            if not display_name or display_name in self.channel_ids:
+
+            # 别名替换，保证和你json里的epgid对应
+            final_name = self.alias_map.get(display_name, display_name)
+
+            if not final_name or final_name in self.channel_ids:
                 continue
 
-            self.orig_id_to_final_id[orig_id] = display_name
-            ch.set("id", display_name)
+            self.orig_id_to_final_id[orig_id] = final_name
+            ch.set("id", final_name)
             self.all_channels.append(ch)
-            self.channel_ids.add(display_name)
+            self.channel_ids.add(final_name)
 
     def parse_program_time(self, ts):
         try:
@@ -189,7 +209,6 @@ class EPGGenerator:
         tree = self.build_xml_tree()
         xml_str = etree.tostring(tree, encoding="utf-8", xml_declaration=True, pretty_print=True)
 
-        # 只输出 gz，里面文件名是 epg.xml，Gitee 可用
         gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
         with gzip.GzipFile(filename="epg.xml", mode='wb', fileobj=open(gz_path, 'wb')) as f:
             f.write(xml_str)
