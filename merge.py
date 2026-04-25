@@ -192,16 +192,14 @@ class EPGGenerator:
         tree = self.build_xml_tree()
         xml_str = etree.tostring(tree, encoding="utf-8", xml_declaration=True, pretty_print=True)
 
-        # 直接输出正常的 epg.xml（必带后缀）
         xml_path = os.path.join(OUTPUT_DIR, "epg.xml")
         with open(xml_path, "wb") as f:
             f.write(xml_str)
 
-        # 再打包成 gz，里面也是 epg.xml
+        # 固定写入文件名 epg.xml，解压必带后缀
         gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
-        with open(xml_path, "rb") as f_in:
-            with gzip.open(gz_path, "wb") as f_out:
-                f_out.write(f_in.read())
+        with gzip.GzipFile(filename="epg.xml", mode='wb', fileobj=open(gz_path, 'wb')) as f_out:
+            f_out.write(xml_str)
 
         logging.info(f"✅ 生成完成：{xml_path} 和 {gz_path}")
         logging.info(f"📺 频道：{len(self.all_channels)} | 🎬 节目：{len(self.all_programs)}")
