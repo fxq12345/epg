@@ -1,4 +1,4 @@
-name: Auto Update EPG (稳定版)
+name: Auto Update EPG (最终稳定版)
 
 on:
   schedule:
@@ -19,26 +19,26 @@ jobs:
       - name: 拉取代码
         uses: actions/checkout@v4
         with:
-          repository: fxq12345/epg  # 你的仓库地址，已替换！
+          repository: fxq12345/epg
           ref: master
           fetch-depth: 0
 
       - name: 安装Python和依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3.10 python3-pip
-          pip3 install --upgrade aiohttp tqdm opencc-python-reimplemented lxml
+          sudo apt-get install -y python3 python3-pip
+          pip3 install --upgrade aiohttp tqdm opencc-python-reimplemented lxml requests
 
       - name: 运行EPG生成脚本
         run: |
           echo "=== 开始生成EPG ==="
           rm -rf output/* 2>/dev/null || true
-          python3 merge.py  # 你的主脚本名，已修正
+          python3 merge.py
           echo "=== 生成完成 ==="
 
       - name: 验证并推送
         run: |
-          if [ ! -f "output/epg.xml" ]; then
+          if [ ! -f "output/epg.gz" ]; then
             echo "❌ 未生成EPG"
             exit 1
           fi
