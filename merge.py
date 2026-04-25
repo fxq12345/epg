@@ -23,7 +23,7 @@ CORE_RETRY_COUNT = 3  # 增加重试次数
 # 确保输出目录存在
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 日志格式增强：详细时间 + 源地址 + 结果统计
+# 详细日志格式
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -33,7 +33,7 @@ logging.basicConfig(
     ]
 )
 
-# 全频道手动映射表（兜底用）
+# 全频道手动映射表（兜底）
 COOL9_ID_MAPPING = {
     "1": "CCTV1", "2": "CCTV2", "3": "CCTV3", "4": "CCTV4",
     "5": "CCTV5", "6": "CCTV6", "7": "CCTV7", "8": "CCTV8",
@@ -373,4 +373,4 @@ class EPGGenerator:
         logging.info("=" * 60)
         logging.info(f"📌 抓取汇总：")
         logging.info(f"✅ 成功源数量：{total_success}")
-        logging.info(f"❌
+        logging.info(f"❌ 失败源数量
