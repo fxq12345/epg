@@ -1,11 +1,10 @@
 import os
 import gzip
 import re
-import time
 import logging
 import io
 from datetime import datetime, timedelta
-from typing import List, Dict, Set, Tuple
+from typing import List, Dict, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from lxml import etree
@@ -20,6 +19,7 @@ MAX_WORKERS = 3
 TIMEOUT = 30
 CORE_RETRY_COUNT = 3
 
+# 全部统一：往前7天 + 往后7天 = 14天
 DAYS_BEFORE = 7
 DAYS_AFTER = 7
 
@@ -29,7 +29,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),
         logging.StreamHandler()
     ]
 )
@@ -72,6 +72,11 @@ class EPGGenerator:
         })
         return session
 
+    def clean_xml_content(self, content: str) -> str:
+        content = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', content)
+        content = content.replace('& ', '&amp; ')
+        return content
+
     def get_content(self, source: str) -> str | None:
         try:
             resp = self.session.get(source, timeout=TIMEOUT)
@@ -84,7 +89,7 @@ class EPGGenerator:
                 content = data.decode('utf-8', errors='ignore')
             return self.clean_xml_content(content)
         except Exception as e:
-            logging.warning(f"获取内容失败: {source} | {str(e)[:60]}")
+            logging.warning(f"获取失败: {source} | {str(e)[:60]}")
             return None
 
     def read_epg_sources(self) -> List[str]:
@@ -100,16 +105,11 @@ class EPGGenerator:
                         continue
                     if line.startswith(("http://", "https://")):
                         sources.append(line)
-            logging.info(f"读取配置完成，共找到 {len(sources)} 个源")
+            logging.info(f"读取源：{len(sources)} 个")
             return sources
         except Exception as e:
-            logging.error(f"读取配置失败：{str(e)}")
+            logging.error(f"读取配置失败：{e}")
             return []
-
-    def clean_xml_content(self, content: str) -> str:
-        content = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', content)
-        content = content.replace('& ', '&amp; ')
-        return content
 
     def process_channels(self, xml_tree):
         channels = xml_tree.xpath("//channel")
@@ -158,11 +158,10 @@ class EPGGenerator:
         for p in programs:
             orig_cid = p.get("channel", "").strip()
             final_id = self.orig_id_to_final_id.get(orig_cid)
-            if not final_id or final_id not in self.channel_ids:
+            if not final_id:
                 continue
 
             p.set("channel", final_id)
-
             if "iHOT" in final_id or "ihot" in final_id.lower():
                 self.adjust_program_time(p, hours=+8)
 
@@ -170,11 +169,12 @@ class EPGGenerator:
             if not st:
                 continue
 
+            # 全部统一 14 天
             if self.start_cutoff <= st <= self.end_cutoff:
                 keep.append(p)
 
         self.all_programs.extend(keep)
-        logging.info(f"✅ 保留14天节目：{len(keep)} 条")
+        logging.info(f"本轮保留节目：{len(keep)} 条")
 
     def build_xml_tree(self):
         root = etree.Element("tv")
@@ -186,7 +186,7 @@ class EPGGenerator:
 
     def save_epg(self):
         if not self.all_channels or not self.all_programs:
-            logging.warning("⚠️ 无有效频道或节目")
+            logging.warning("无有效频道或节目")
             return
 
         tree = self.build_xml_tree()
@@ -201,7 +201,7 @@ class EPGGenerator:
             with gzip.open(gz_path, "wb") as f_out:
                 f_out.writelines(f_in)
 
-        logging.info(f"✅ 已生成：{xml_path} 和 {gz_path}")
+        logging.info(f"✅ 生成完成：{xml_path} 和 {gz_path}")
         logging.info(f"📺 频道：{len(self.all_channels)} | 🎬 节目：{len(self.all_programs)}")
 
     def run(self):
@@ -209,15 +209,17 @@ class EPGGenerator:
         if not sources:
             return
 
-        for src in sources:
-            try:
-                content = self.get_content(src)
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = [executor.submit(self.get_content, src) for src in sources]
+            for future in as_completed(futures):
+                content = future.result()
                 if content:
-                    tree = etree.fromstring(content.encode("utf-8"))
-                    self.process_channels(tree)
-                    self.process_programs(tree)
-            except Exception as e:
-                logging.warning(f"处理失败 {src}: {e}")
+                    try:
+                        tree = etree.fromstring(content.encode("utf-8"))
+                        self.process_channels(tree)
+                        self.process_programs(tree)
+                    except Exception as e:
+                        logging.warning(f"解析XML失败: {e}")
 
         self.save_epg()
 
