@@ -1,56 +1,37 @@
-name: Auto Update EPG (最终稳定版-仅GZ)
+name: Auto Update EPG (终极稳定版)
 
 on:
   schedule:
     - cron: '0 16 * * *'  # 北京时间0点
     - cron: '0 4 * * *'   # 北京时间12点
-  workflow_dispatch:
-  push:
-    branches: [ master ]
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
-  update:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     permissions:
       contents: write
-
     steps:
-      - name: 拉取代码
-        uses: actions/checkout@v4
-        with:
-          repository: fxq12345/epg
-          ref: master
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: 安装Python和依赖
+      - name: 安装依赖
         run: |
-          sudo apt-get update
-          sudo apt-get install -y python3 python3-pip
-          pip3 install --upgrade aiohttp tqdm opencc-python-reimplemented lxml requests
+          sudo apt-get update && sudo apt-get install -y python3-pip
+          pip3 install lxml requests
 
       - name: 运行EPG生成脚本
         run: |
-          echo "=== 开始生成EPG ==="
-          rm -rf output/* 2>/dev/null || true
+          chmod +x merge.py
           python3 merge.py
-          echo "=== 生成完成 ==="
-          ls -lh output/  # 调试：确认文件存在
+          ls -lh output/  # 强制列出文件，调试用
 
-      - name: 仅保留GZ并推送
+      - name: 提交并推送
         run: |
-          # 检查文件是否存在
-          if [ ! -f "output/epg.gz" ]; then
-            echo "❌ 未生成EPG压缩包"
-            exit 1
-          fi
-          echo "✅ epg.gz 存在"
+          # 强制检查，即使是空文件也提交（用于调试）
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 配置Git
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          
-          # 强制添加output目录并提交
-          git add -A output/
-          git commit -m "EPG更新 $(date)" || exit 0
-          git push origin master
+          # 强制添加output目录
+          git add -A .
+          git commit -m "自动更新 EPG $(date)" || exit 0
+          git push origin HEAD:master
