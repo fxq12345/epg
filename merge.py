@@ -16,11 +16,14 @@ from urllib3.util.retry import Retry
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
 LOG_FILE = "epg_merge.log"
-MAX_WORKERS = 3  # 并发线程数（可根据需求调整）
+MAX_WORKERS = 3
 TIMEOUT = 30
-CORE_RETRY_COUNT = 2
+CORE_RETRY_COUNT = 3  # 增加重试次数
 
-# 配置日志
+# 确保输出目录存在
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# 日志格式增强：详细时间 + 源地址 + 结果统计
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -30,25 +33,20 @@ logging.basicConfig(
     ]
 )
 
-# 全频道手动映射表（补全所有你提的卫视/特色频道，数字ID无重复）
+# 全频道手动映射表（兜底用）
 COOL9_ID_MAPPING = {
-    # CCTV基础频道
     "1": "CCTV1", "2": "CCTV2", "3": "CCTV3", "4": "CCTV4",
     "5": "CCTV5", "6": "CCTV6", "7": "CCTV7", "8": "CCTV8",
     "9": "CCTV9", "10": "CCTV10", "11": "CCTV11", "12": "CCTV12",
     "13": "CCTV13", "14": "CCTV14", "15": "CCTV15", "16": "CCTV16",
-    # 核心卫视频道（北京/河南/河北/湖北/海南/贵州/厦门）
     "21": "北京卫视", "22": "河南卫视", "23": "河北卫视",
     "24": "湖北卫视", "25": "海南卫视", "26": "贵州卫视", "27": "厦门卫视",
-    # 特色频道
     "28": "CCTV5+", "29": "峨眉电影", "30": "峨眉电影4K", "31": "北京IPTV4K超清",
-    # 淘系全系列
     "32": "淘电影", "33": "淘娱乐", "34": "淘剧场", "35": "淘baby", "36": "淘精彩",
-    # 其他特色频道
     "37": "萌宠TV", "38": "优漫卡通"
 }
 
-# 国外频道关键词黑名单（命中则过滤，不保留）
+# 国外频道过滤
 FOREIGN_KEYWORDS = [
     "BBC", "CNN", "NBC", "FOX", "HBO", "Netflix", "Disney",
     "欧美", "美国", "英国", "法国", "德国", "日本", "韩国",
@@ -56,26 +54,25 @@ FOREIGN_KEYWORDS = [
     "欧洲", "美洲", "非洲", "俄罗斯", "印度", "巴西"
 ]
 
-# 国内特殊频道关键词（兜底防过滤，已删除「爱」，和iHOT无关联）
 DOMESTIC_SPECIAL = ["popc", "淘", "new", "NEW", "POPC", "超级电影", "IPTV", "new系列", "NewTV"]
 # ==================================================
 
 class EPGGenerator:
     def __init__(self):
         self.session = self._create_session()
-        self.channel_ids: Set[str] = set()  # 去重频道ID
-        self.all_channels: List = []        # 所有保留的频道
-        self.all_programs: List = []        # 所有保留的节目单
-        self.name_to_final_id = dict()      # 频道名称→最终数字ID 映射
-        self.program_channel_map = dict()   # 临时存储节目单channel映射
+        self.channel_ids: Set[str] = set()
+        self.all_channels: List = []
+        self.all_programs: List = []
+        self.name_to_final_id = dict()
+        self.program_channel_map = dict()
 
     def _create_session(self) -> requests.Session:
-        """创建带重试机制的会话（防请求失败）"""
         session = requests.Session()
         retry_strategy = Retry(
-            total=CORE_RETRY_COUNT + 2,
-            backoff_factor=1.5,
+            total=CORE_RETRY_COUNT,
+            backoff_factor=1.2,
             status_forcelist=[429, 500, 502, 503, 504],
+            respect_retry_after_header=True
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)
         session.mount("http://", adapter)
@@ -88,219 +85,292 @@ class EPGGenerator:
         return session
 
     def read_epg_sources(self) -> List[str]:
-        """读取config.txt中的EPG源地址"""
+        """读取 config.txt，返回所有有效源（支持gz/xml/其他）"""
         if not os.path.exists(CONFIG_FILE):
-            logging.error(f"配置文件不存在: {CONFIG_FILE}")
-            raise FileNotFoundError(f"找不到配置文件: {CONFIG_FILE}")
+            logging.warning(f"配置文件 {CONFIG_FILE} 不存在，使用空列表")
+            return []
 
+        sources = []
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                sources = []
                 for line_num, line in enumerate(f, 1):
                     line = line.strip()
-                    if line and not line.startswith("#"):
-                        if line.startswith(("http://", "https://")):
-                            sources.append(line)
-                        else:
-                            logging.warning(f"第{line_num}行格式错误，已跳过: {line}")
-
-            if len(sources) < 1:
-                logging.error(f"未找到有效EPG源，程序退出")
-                raise ValueError("无有效EPG源")
-
-            return sources[:8]
+                    if not line or line.startswith("#"):
+                        continue
+                    if line.startswith(("http://", "https://")):
+                        sources.append(line)
+                    else:
+                        logging.warning(f"第{line_num}行：无效地址，跳过 -> {line}")
+            logging.info(f"读取配置完成，共找到 {len(sources)} 个源")
+            return sources
         except Exception as e:
-            logging.error(f"读取配置文件失败: {str(e)}")
-            raise
+            logging.error(f"读取配置失败：{str(e)}")
+            return []
 
     def clean_xml_content(self, content: str) -> str:
-        """清理EPG源中的无效字符（防解析报错）"""
         content_clean = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', content)
         content_clean = content_clean.replace('& ', '&amp; ')
         return content_clean
 
-    def fetch_single_source(self, source: str) -> Tuple[bool, str, any]:
-        """并发抓取单个EPG源，返回解析后的XML树"""
-        try:
-            start_time = time.time()
-            logging.info(f"开始抓取: {source}")
+    def fetch_single_source(self, source: str) -> Tuple[bool, str, int, int, int]:
+        """
+        抓取单个源，并返回详细统计：
+        (是否成功, 源地址, 重试次数, 频道数, 节目数)
+        """
+        retry_count = 0
+        start_time = time.time()
 
-            response = self.session.get(source, timeout=TIMEOUT)
-            response.raise_for_status()
+        while retry_count < CORE_RETRY_COUNT:
+            try:
+                logging.info(f"🔄 第{retry_count+1}次尝试抓取：{source}")
+                resp = self.session.get(source, timeout=TIMEOUT)
+                resp.raise_for_status()
+                cost = time.time() - start_time
 
-            if source.endswith('.gz'):
-                content = gzip.decompress(response.content).decode('utf-8')
-            else:
-                content = response.text
+                # 识别内容类型
+                if source.endswith(".gz") or resp.headers.get("Content-Encoding") == "gzip":
+                    content = gzip.decompress(resp.content).decode("utf-8", errors="ignore")
+                    fmt = "gz"
+                elif "xml" in resp.headers.get("Content-Type", "") or source.endswith(".xml"):
+                    content = resp.text
+                    fmt = "xml"
+                else:
+                    content = resp.text
+                    fmt = "other"
 
-            content_clean = self.clean_xml_content(content)
-            xml_tree = etree.fromstring(content_clean.encode('utf-8'))
+                content_clean = self.clean_xml_content(content)
+                xml_tree = etree.fromstring(content_clean.encode("utf-8"))
 
-            cost_time = time.time() - start_time
-            logging.info(f"成功抓取: {source} | 耗时: {cost_time:.2f}s")
-            return True, source, xml_tree
+                # 统计频道 & 节目
+                channels = xml_tree.xpath("//channel")
+                programs = xml_tree.xpath("//programme")
+                chan_cnt = len(channels)
+                prog_cnt = len(programs)
 
-        except Exception as e:
-            logging.error(f"抓取失败 {source}: {str(e)}")
-            return False, source, None
+                logging.info(
+                    f"✅ 成功抓取 [{fmt}] {source} | "
+                    f"耗时 {cost:.2f}s | "
+                    f"频道 {chan_cnt} | "
+                    f"节目 {prog_cnt} | "
+                    f"重试 {retry_count} 次"
+                )
+                return True, source, retry_count, chan_cnt, prog_cnt
+
+            except requests.exceptions.RetryError as e:
+                retry_count += 1
+                logging.warning(
+                    f"⚠️  重试失败[{retry_count}/{CORE_RETRY_COUNT}] {source} | 错误：{str(e)[:80]}"
+                )
+                time.sleep(0.5)
+            except Exception as e:
+                retry_count += 1
+                logging.warning(
+                    f"❌ 抓取失败[{retry_count}/{CORE_RETRY_COUNT}] {source} | 错误：{str(e)[:80]}"
+                )
+                time.sleep(0.8)
+
+        # 全部重试失败
+        cost = time.time() - start_time
+        logging.error(
+            f"💥 所有重试均失败 {source} | "
+            f"耗时 {cost:.2f}s | "
+            f"重试 {CORE_RETRY_COUNT} 次"
+        )
+        return False, source, CORE_RETRY_COUNT, 0, 0
 
     def normalize_channel_name(self, name: str) -> str:
-        """标准化频道名称（统一格式，防匹配偏差）"""
         name = re.sub(r'[^\u4e00-\u9fff0-9a-zA-Z]', '', name)
         name = name.replace("new", "NEW").replace("newtv", "NEWTV")
         name = re.sub(r'^IPTV', '', name)
         return name.strip()
 
     def pre_fetch_program_channels(self, sources: List[str]):
-        """预抓取所有EPG源的频道映射，辅助精准匹配"""
-        logging.info("开始预抓取节目单频道映射...")
+        """预抓取频道映射，辅助精准匹配"""
+        logging.info("开始预抓取频道映射...")
+        map_count = 0
         for source in sources:
             try:
-                response = self.session.get(source, timeout=TIMEOUT)
-                response.raise_for_status()
-
-                if source.endswith('.gz'):
-                    content = gzip.decompress(response.content).decode('utf-8')
+                success, _, _, _, _ = self.fetch_single_source(source)
+                if not success:
+                    continue
+                # 这里只做预解析，不写入all_channels
+                resp = self.session.get(source, timeout=TIMEOUT)
+                if source.endswith(".gz"):
+                    content = gzip.decompress(resp.content).decode("utf-8")
                 else:
-                    content = response.text
-
-                content_clean = self.clean_xml_content(content)
-                xml_tree = etree.fromstring(content_clean.encode('utf-8'))
-
-                programs = xml_tree.xpath("//programme")
-                channels = xml_tree.xpath("//channel")
-
-                channel_id_to_name = {}
-                for ch in channels:
+                    content = resp.text
+                tree = etree.fromstring(self.clean_xml_content(content).encode("utf-8"))
+                chans = tree.xpath("//channel")
+                for ch in chans:
                     cid = ch.get("id", "").strip()
-                    display_names = ch.xpath(".//display-name/text()")
-                    ch_name = display_names[0].strip() if display_names else cid
-                    channel_id_to_name[cid] = ch_name
-
-                for program in programs:
-                    prog_cid = program.get("channel", "").strip()
-                    if prog_cid.isdigit() and prog_cid in channel_id_to_name:
-                        ch_name = channel_id_to_name[prog_cid]
-                        normalized_name = self.normalize_channel_name(ch_name)
-                        if normalized_name and normalized_name not in self.program_channel_map:
-                            self.program_channel_map[normalized_name] = prog_cid
-
+                    names = ch.xpath(".//display-name/text()")
+                    if not cid or not names:
+                        continue
+                    norm = self.normalize_channel_name(names[0])
+                    if norm and norm not in self.program_channel_map:
+                        self.program_channel_map[norm] = cid
+                        map_count += 1
             except Exception as e:
-                logging.warning(f"预抓取{source}失败: {str(e)}")
-
-        logging.info(f"预抓取完成，建立{len(self.program_channel_map)}个名称→数字ID映射")
+                logging.debug(f"预抓取跳过 {source}：{str(e)[:60]}")
+        logging.info(f"预抓取完成，建立 {map_count} 个名称-ID映射")
 
     def process_channels(self, xml_tree, source: str) -> int:
-        """处理频道：映射数字ID、去重、过滤国外频道"""
         channels = xml_tree.xpath("//channel")
         add_count = 0
-
-        for channel in channels:
-            original_cid = channel.get("id", "").strip()
-            if not original_cid:
+        for ch in channels:
+            orig_id = ch.get("id", "").strip()
+            names = ch.xpath(".//display-name/text()")
+            if not names:
                 continue
+            name = names[0].strip()
+            norm_name = self.normalize_channel_name(name)
 
-            display_names = channel.xpath(".//display-name/text()")
-            channel_name = display_names[0].strip() if display_names else original_cid
-            normalized_name = self.normalize_channel_name(channel_name)
-            if not normalized_name:
+            if any(kw in name for kw in FOREIGN_KEYWORDS):
                 continue
-
-            # 过滤国外频道
-            if any(kw in channel_name for kw in FOREIGN_KEYWORDS):
-                continue
-            if any(kw in channel_name for kw in DOMESTIC_SPECIAL):
+            if any(kw in name for kw in DOMESTIC_SPECIAL):
                 pass
 
-            # 优先匹配预抓取映射，再匹配手动映射
-            final_cid = original_cid
-            if normalized_name in self.program_channel_map:
-                final_cid = self.program_channel_map[normalized_name]
-            elif "NEWTV" in normalized_name or "NEW" in normalized_name:
-                programs = xml_tree.xpath('//programme[contains(@channel, "{}")]'.format(normalized_name[:4]))
-                if programs:
-                    final_cid = programs[0].get("channel", "").strip()
+            final_id = orig_id
+            if norm_name in self.program_channel_map:
+                final_id = self.program_channel_map[norm_name]
+            elif norm_name in COOL9_ID_MAPPING:
+                final_id = COOL9_ID_MAPPING[norm_name]
 
-            # 手动映射表兜底匹配
-            if normalized_name in self.name_to_final_id:
-                final_cid = self.name_to_final_id[normalized_name]
-            else:
-                if original_cid in COOL9_ID_MAPPING:
-                    final_cid = COOL9_ID_MAPPING[original_cid]
-                elif channel_name in COOL9_ID_MAPPING:
-                    final_cid = COOL9_ID_MAPPING[channel_name]
-
-                if not final_cid.isdigit() and normalized_name in self.program_channel_map:
-                    final_cid = self.program_channel_map[normalized_name]
-
-            if final_cid in self.channel_ids or not final_cid:
+            if not final_id or final_id in self.channel_ids:
                 continue
 
-            channel.set("id", final_cid)
-            self.channel_ids.add(final_cid)
-            self.name_to_final_id[normalized_name] = final_cid
-            self.all_channels.append(channel)
+            ch.set("id", final_id)
+            self.all_channels.append(ch)
+            self.channel_ids.add(final_id)
+            self.name_to_final_id[norm_name] = final_id
             add_count += 1
-
-        logging.info(f"从{source}处理到{add_count}个新频道")
         return add_count
 
-    def get_channel_name_by_id(self, channel_id: str) -> str:
-        """根据数字ID反向获取频道名称"""
-        for channel in self.all_channels:
-            if channel.get("id", "") == channel_id:
-                display_names = channel.xpath(".//display-name/text()")
-                if display_names:
-                    return display_names[0].strip()
+    def get_channel_name_by_id(self, cid: str) -> str:
+        for ch in self.all_channels:
+            if ch.get("id") == cid:
+                names = ch.xpath(".//display-name/text()")
+                return names[0] if names else ""
         return ""
 
     def adjust_program_time(self, program, days=0, hours=0):
-        """时间调整核心方法：仅对iHOT系列+8小时"""
         for attr in ["start", "stop"]:
-            time_str = program.get(attr, "")
-            if time_str and ' ' in time_str:
-                time_part, tz = time_str.split(' ')
-                if len(time_part) >= 14:
-                    try:
-                        dt = datetime.strptime(time_part[:14], "%Y%m%d%H%M%S")
-                        original = dt.strftime("%Y-%m-%d %H:%M")
-                        # 时间偏移计算
-                        dt = dt + timedelta(days=days, hours=hours)
-                        new_time = dt.strftime("%Y%m%d%H%M%S") + " " + tz
-                        program.set(attr, new_time)
-                        adjusted = dt.strftime("%Y-%m-%d %H:%M")
-                        logging.debug(f"时间调整: {original} -> {adjusted} ({days:+d}天 {hours:+d}小时)")
-                    except Exception as e:
-                        logging.warning(f"时间调整失败 {time_str}: {e}")
+            ts = program.get(attr, "")
+            if not ts or " " not in ts:
+                continue
+            part, tz = ts.split(" ", 1)
+            if len(part) < 14:
+                continue
+            try:
+                dt = datetime.strptime(part[:14], "%Y%m%d%H%M%S")
+                dt += timedelta(days=days, hours=hours)
+                program.set(attr, dt.strftime("%Y%m%d%H%M%S") + " " + tz)
+            except Exception:
+                pass
 
     def process_programs(self, xml_tree):
-        """处理节目单：纯iHOT系列+8小时，其他频道0调整（核心逻辑）"""
         programs = xml_tree.xpath("//programme")
-        ihot_count = 0
-        other_count = 0
+        ihot_cnt = 0
+        for p in programs:
+            cid = p.get("channel", "").strip()
+            if cid not in self.channel_ids:
+                continue
+            name = self.get_channel_name_by_id(cid)
+            if "iHOT" in name:
+                self.adjust_program_time(p, hours=+8)
+                ihot_cnt += 1
+            self.all_programs.append(p)
+        logging.info(f"时间调整完成：iHOT+8小时 {ihot_cnt} 条")
 
-        for program in programs:
-            prog_cid = program.get("channel", "").strip()
-            if prog_cid.isdigit() and prog_cid in self.channel_ids:
-                channel_name = self.get_channel_name_by_id(prog_cid)
-                if channel_name:
-                    # 仅匹配小写i+大写HOT，与汉字「爱」无关联
-                    is_ihot = "iHOT" in channel_name
-                    if is_ihot:
-                        self.adjust_program_time(program, hours=+8)
-                        ihot_count += 1
-                        logging.info(f"iHOT系列 {channel_name} 时间调整 +8小时")
-                    else:
-                        self.adjust_program_time(program, hours=0)
-                        other_count += 1
-                self.all_programs.append(program)
+    def generate_default_epg(self):
+        """兜底：当没有任何源抓取到数据时生成默认EPG"""
+        logging.warning("⚠️  未抓取到任何有效EPG数据，正在生成默认EPG...")
 
-        if ihot_count > 0 or other_count > 0:
-            logging.info(f"时间调整统计: iHOT系列{ihot_count}个, 其他频道{other_count}个")
+        # 1. 生成默认频道
+        for cid, name in COOL9_ID_MAPPING.items():
+            chan = etree.Element("channel", id=cid)
+            dn = etree.SubElement(chan, "display-name")
+            dn.text = name
+            self.all_channels.append(chan)
+            self.channel_ids.add(cid)
+            self.name_to_final_id[name] = cid
 
-    def fetch_all_sources(self, sources: List[str]) -> bool:
-        """批量处理所有EPG源"""
+        # 2. 生成未来7天每天3个默认节目
+        now = datetime.now()
+        for cid in self.channel_ids:
+            chan_name = self.name_to_final_id[cid]
+            for day in range(7):
+                base = now + timedelta(days=day)
+                start = base.strftime("%Y%m%d000000")
+                stop = (base + timedelta(hours=8)).strftime("%Y%m%d080000")
+                prog = etree.Element("programme", start=f"{start} +0800", stop=f"{stop} +0800", channel=cid)
+                title = etree.SubElement(prog, "title")
+                title.text = f"{chan_name} 默认节目{day+1}"
+                self.all_programs.append(prog)
+
+        logging.info(f"默认EPG生成完成：频道 {len(self.all_channels)} | 节目 {len(self.all_programs)}")
+
+    def build_xml_tree(self) -> etree._Element:
+        root = etree.Element("tv")
+        for chan in self.all_channels:
+            root.append(chan)
+        for prog in self.all_programs:
+            root.append(prog)
+        return root
+
+    def save_epg(self):
+        """最终生成 epg.gz"""
+        if not self.all_channels and not self.all_programs:
+            self.generate_default_epg()
+
+        tree = self.build_xml_tree()
+        xml_str = etree.tostring(tree, encoding="utf-8", xml_declaration=True, pretty_print=True)
+
+        gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
+        with gzip.open(gz_path, "wb") as f:
+            f.write(xml_str)
+
+        logging.info(f"✅ 最终EPG已保存 -> {gz_path}")
+        logging.info(f"📊 最终统计：频道 {len(self.all_channels)} | 节目 {len(self.all_programs)}")
+
+    def run(self):
+        sources = self.read_epg_sources()
+        if not sources:
+            self.generate_default_epg()
+            self.save_epg()
+            return
+
         self.pre_fetch_program_channels(sources)
-        successful_sources = 0
+
+        total_success = 0
+        total_fail = 0
+        total_chan = 0
+        total_prog = 0
+
         with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(sources))) as executor:
-            future
+            future_to_src = {executor.submit(self.fetch_single_source, s): s for s in sources}
+            for fut in as_completed(future_to_src):
+                success, src, retries, chans, progs = fut.result()
+                if success:
+                    total_success += 1
+                    total_chan += chans
+                    total_prog += progs
+                    # 继续处理频道和节目
+                    try:
+                        resp = self.session.get(src, timeout=TIMEOUT)
+                        if src.endswith(".gz"):
+                            content = gzip.decompress(resp.content).decode("utf-8")
+                        else:
+                            content = resp.text
+                        tree = etree.fromstring(self.clean_xml_content(content).encode("utf-8"))
+                        self.process_channels(tree, src)
+                        self.process_programs(tree)
+                    except Exception as e:
+                        logging.warning(f"处理 {src} 频道/节目失败：{str(e)}")
+                else:
+                    total_fail += 1
+
+        logging.info("=" * 60)
+        logging.info(f"📌 抓取汇总：")
+        logging.info(f"✅ 成功源数量：{total_success}")
+        logging.info(f"❌
