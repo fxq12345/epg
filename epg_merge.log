@@ -305,3 +305,15 @@
 2026-04-25 17:23:21,729 - WARNING - 获取失败: https://e.erw.cc/all.xml | 522 Server Error: Connect origin timed out for url: https://
 2026-04-25 17:23:23,649 - INFO - ✅ 生成完成：output/epg.xml 和 output/epg.gz
 2026-04-25 17:23:23,649 - INFO - 📺 频道：2268 | 🎬 节目：304551
+2026-04-25 17:41:47,155 - INFO - 读取源：6 个
+2026-04-25 17:41:47,377 - WARNING - 获取失败: https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz | name 'io' is not defined
+2026-04-25 17:41:47,751 - WARNING - 获取失败: https://github.com/zzq1234567890/epg/raw/refs/heads/main/swepg.xml.gz | name 'io' is not defined
+2026-04-25 17:41:49,981 - INFO - 本轮保留节目：17640 条
+2026-04-25 17:41:50,428 - INFO - 本轮保留节目：36625 条
+2026-04-25 17:41:52,788 - INFO - 本轮保留节目：1431 条
+2026-04-25 17:42:47,692 - WARNING - Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7ff870d9d940>, 'Connection to e.erw.cc timed out. (connect timeout=30)')': /all.xml
+2026-04-25 17:43:51,650 - WARNING - Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7ff86dce21e0>, 'Connection to e.erw.cc timed out. (connect timeout=30)')': /all.xml
+2026-04-25 17:44:56,719 - WARNING - Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x7ff86dce23f0>, 'Connection to e.erw.cc timed out. (connect timeout=30)')': /all.xml
+2026-04-25 17:45:57,086 - WARNING - 获取失败: https://e.erw.cc/all.xml | HTTPSConnectionPool(host='e.erw.cc', port=443): Max retries 
+2026-04-25 17:45:57,479 - INFO - ✅ 生成完成：output/epg.gz
+2026-04-25 17:45:57,479 - INFO - 📺 频道：232 | 🎬 节目：55696
