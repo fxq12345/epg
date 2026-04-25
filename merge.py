@@ -3,6 +3,7 @@ import gzip
 import re
 import time
 import logging
+import io
 from datetime import datetime, timedelta
 from typing import List, Dict, Set, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -27,7 +28,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf- 8'),
+        logging.FileHandler(LOG_FILE, encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -76,11 +77,33 @@ class EPGGenerator:
         session.mount("http://", adapter)
         session.mount("https://", adapter)
         session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-            "Accept": "application/xml, */*",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/xml,text/xml,*/*",
             "Accept-Encoding": "gzip, deflate"
         })
         return session
+
+    def get_content(self, source: str) -> str | None:
+        """
+        统一自动判断：gzip 或普通 xml，自动解压/解码
+        """
+        try:
+            resp = self.session.get(source, timeout=TIMEOUT)
+            resp.raise_for_status()
+            data = resp.content
+
+            # 自动判断是否 gzip（文件头 0x1f8b）
+            if data.startswith(b'\x1f\x8b'):
+                with gzip.GzipFile(fileobj=io.BytesIO(data)) as f:
+                    content = f.read().decode('utf-8', errors='ignore')
+            else:
+                content = data.decode('utf-8', errors='ignore')
+
+            return self.clean_xml_content(content)
+
+        except Exception as e:
+            logging.warning(f"获取内容失败: {source} | {str(e)[:60]}")
+            return None
 
     def read_epg_sources(self) -> List[str]:
         """读取 config.txt"""
@@ -116,46 +139,25 @@ class EPGGenerator:
         while retry_count < CORE_RETRY_COUNT:
             try:
                 logging.info(f"🔄 第{retry_count+1}次尝试抓取：{source}")
-                resp = self.session.get(source, timeout=TIMEOUT)
-                resp.raise_for_status()
-                cost = time.time() - start_time
+                content = self.get_content(source)
+                if not content:
+                    raise Exception("空内容")
 
-                # 识别格式
-                if source.endswith(".gz") or resp.headers.get("Content-Encoding") == "gzip":
-                    content = gzip.decompress(resp.content).decode("utf-8", errors="ignore")
-                    fmt = "gz"
-                elif "xml" in resp.headers.get("Content-Type", "") or source.endswith(".xml"):
-                    content = resp.text
-                    fmt = "xml"
-                else:
-                    content = resp.text
-                    fmt = "other"
-
-                content_clean = self.clean_xml_content(content)
-                xml_tree = etree.fromstring(content_clean.encode("utf-8"))
-
-                # 统计
+                xml_tree = etree.fromstring(content.encode("utf-8"))
                 channels = xml_tree.xpath("//channel")
                 programs = xml_tree.xpath("//programme")
                 chan_cnt = len(channels)
                 prog_cnt = len(programs)
+                cost = time.time() - start_time
 
                 logging.info(
-                    f"✅ 成功抓取 [{fmt}] {source} | "
-                    f"耗时 {cost:.2f}s | "
-                    f"频道 {chan_cnt} | "
-                    f"节目 {prog_cnt} | "
-                    f"重试 {retry_count} 次"
+                    f"✅ 成功抓取 {source} | 耗时 {cost:.2f}s | 频道 {chan_cnt} | 节目 {prog_cnt}"
                 )
                 return True, source, retry_count, chan_cnt, prog_cnt
 
-            except requests.exceptions.RetryError as e:
-                retry_count += 1
-                logging.warning(f"⚠️ 重试失败[{retry_count}/{CORE_RETRY_COUNT}] {source}")
-                time.sleep(0.5)
             except Exception as e:
                 retry_count += 1
-                logging.warning(f"❌ 抓取失败[{retry_count}/{CORE_RETRY_COUNT}] {source} | 错误：{str(e)[:60]}")
+                logging.warning(f"⚠️ 失败[{retry_count}/{CORE_RETRY_COUNT}] {source} | {str(e)[:60]}")
                 time.sleep(0.8)
 
         cost = time.time() - start_time
@@ -174,15 +176,10 @@ class EPGGenerator:
         map_count = 0
         for source in sources:
             try:
-                success, _, _, _, _ = self.fetch_single_source(source)
-                if not success:
+                content = self.get_content(source)
+                if not content:
                     continue
-                resp = self.session.get(source, timeout=TIMEOUT)
-                if source.endswith(".gz"):
-                    content = gzip.decompress(resp.content).decode("utf-8")
-                else:
-                    content = resp.text
-                tree = etree.fromstring(self.clean_xml_content(content).encode("utf-8"))
+                tree = etree.fromstring(content.encode("utf-8"))
                 chans = tree.xpath("//channel")
                 for ch in chans:
                     cid = ch.get("id", "").strip()
@@ -210,8 +207,6 @@ class EPGGenerator:
 
             if any(kw in name for kw in FOREIGN_KEYWORDS):
                 continue
-            if any(kw in name for kw in DOMESTIC_SPECIAL):
-                pass
 
             final_id = orig_id
             if norm_name in self.program_channel_map:
@@ -256,7 +251,6 @@ class EPGGenerator:
         ihot_cnt = 0
         for p in programs:
             cid = p.get("channel", "").strip()
-            # --- 修复点：此处已修正为 'not in' ---
             if cid not in self.channel_ids:
                 continue
             name = self.get_channel_name_by_id(cid)
@@ -333,20 +327,16 @@ class EPGGenerator:
                     total_chan += chans
                     total_prog += progs
                     try:
-                        resp = self.session.get(src, timeout=TIMEOUT)
-                        if src.endswith(".gz"):
-                            content = gzip.decompress(resp.content).decode("utf-8")
-                        else:
-                            content = resp.text
-                        tree = etree.fromstring(self.clean_xml_content(content).encode("utf-8"))
-                        self.process_channels(tree, src)
-                        self.process_programs(tree)
+                        content = self.get_content(src)
+                        if content:
+                            tree = etree.fromstring(content.encode("utf-8"))
+                            self.process_channels(tree, src)
+                            self.process_programs(tree)
                     except Exception as e:
                         logging.warning(f"处理 {src} 失败：{str(e)}")
                 else:
                     total_fail += 1
 
-        # 详细汇总日志（核心：无语法错误）
         logging.info("=" * 60)
         logging.info(f"📌 抓取汇总：")
         logging.info(f"✅ 成功源数量：{total_success}")
