@@ -2,7 +2,6 @@ import os
 import gzip
 import re
 import logging
-import io
 from datetime import datetime, timedelta
 from typing import List, Dict, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -19,7 +18,6 @@ MAX_WORKERS = 3
 TIMEOUT = 30
 CORE_RETRY_COUNT = 3
 
-# 全部统一：往前7天 + 往后7天 = 14天
 DAYS_BEFORE = 7
 DAYS_AFTER = 7
 
@@ -169,7 +167,6 @@ class EPGGenerator:
             if not st:
                 continue
 
-            # 全部统一 14 天
             if self.start_cutoff <= st <= self.end_cutoff:
                 keep.append(p)
 
@@ -192,16 +189,12 @@ class EPGGenerator:
         tree = self.build_xml_tree()
         xml_str = etree.tostring(tree, encoding="utf-8", xml_declaration=True, pretty_print=True)
 
-        xml_path = os.path.join(OUTPUT_DIR, "epg.xml")
-        with open(xml_path, "wb") as f:
+        # 只输出 gz，里面文件名是 epg.xml，Gitee 可用
+        gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
+        with gzip.GzipFile(filename="epg.xml", mode='wb', fileobj=open(gz_path, 'wb')) as f:
             f.write(xml_str)
 
-        # 固定写入文件名 epg.xml，解压必带后缀
-        gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
-        with gzip.GzipFile(filename="epg.xml", mode='wb', fileobj=open(gz_path, 'wb')) as f_out:
-            f_out.write(xml_str)
-
-        logging.info(f"✅ 生成完成：{xml_path} 和 {gz_path}")
+        logging.info(f"✅ 生成完成：{gz_path}")
         logging.info(f"📺 频道：{len(self.all_channels)} | 🎬 节目：{len(self.all_programs)}")
 
     def run(self):
