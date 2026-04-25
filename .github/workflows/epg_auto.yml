@@ -1,0 +1,49 @@
+name: Auto Update EPG (稳定版)
+
+on:
+  schedule:
+    - cron: '0 16 * * *'  # 北京时间0点
+    - cron: '0 4 * * *'   # 北京时间12点
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+        with:
+          repository: fxq12345/epg  # 你的仓库地址，已替换！
+          ref: master
+          fetch-depth: 0
+
+      - name: 安装Python和依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3.10 python3-pip
+          pip3 install --upgrade aiohttp tqdm opencc-python-reimplemented lxml
+
+      - name: 运行EPG生成脚本
+        run: |
+          echo "=== 开始生成EPG ==="
+          rm -rf output/* 2>/dev/null || true
+          python3 merge.py  # 你的主脚本名，已修正
+          echo "=== 生成完成 ==="
+
+      - name: 验证并推送
+        run: |
+          if [ ! -f "output/epg.xml" ]; then
+            echo "❌ 未生成EPG"
+            exit 1
+          fi
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add output/
+          git commit -m "EPG更新 $(date)" || exit 0
+          git push origin master
