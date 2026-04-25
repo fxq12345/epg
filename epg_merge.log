@@ -142,3 +142,43 @@
 2026-04-25 14:43:01,860 - INFO - ============================================================
 2026-04-25 14:43:03,608 - INFO - ✅ 最终EPG已保存 -> output/epg.gz
 2026-04-25 14:43:03,608 - INFO - 📊 最终统计：频道 2168 | 节目 288082
+2026-04-25 15:00:28,225 - INFO - 读取配置完成，共找到 6 个源
+2026-04-25 15:00:28,225 - INFO - 开始预抓取频道映射...
+2026-04-25 15:00:52,856 - WARNING - 获取内容失败: https://e.erw.cc/all.xml | 522 Server Error: Connect origin timed out for url: https://
+2026-04-25 15:00:57,365 - INFO - 预抓取完成，建立 2318 个名称-ID映射
+2026-04-25 15:00:57,420 - INFO - 🔄 第1次尝试抓取：https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz
+2026-04-25 15:00:57,421 - INFO - 🔄 第1次尝试抓取：https://github.com/zzq1234567890/epg/raw/refs/heads/main/swepg.xml.gz
+2026-04-25 15:00:57,422 - INFO - 🔄 第1次尝试抓取：https://epg.27481716.xyz/epg.xml
+2026-04-25 15:00:58,083 - INFO - ✅ 成功抓取 https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz | 耗时 0.66s | 频道 534 | 节目 132945
+2026-04-25 15:00:58,308 - INFO - 🔄 第1次尝试抓取：https://e.erw.cc/all.xml
+2026-04-25 15:00:58,787 - INFO - ✅ 成功抓取 https://github.com/zzq1234567890/epg/raw/refs/heads/main/swepg.xml.gz | 耗时 1.37s | 频道 1843 | 节目 163592
+2026-04-25 15:00:59,155 - INFO - 🔄 第1次尝试抓取：http://epg.51zmt.top:8000/e.xml
+2026-04-25 15:01:01,032 - INFO - ✅ 成功抓取 http://epg.51zmt.top:8000/e.xml | 耗时 1.88s | 频道 102 | 节目 7142
+2026-04-25 15:01:01,055 - INFO - 🔄 第1次尝试抓取：https://raw.githubusercontent.com/fanmingming/live/main/e.xml
+2026-04-25 15:01:05,386 - INFO - 时间调整完成：iHOT+8小时 2167 条
+2026-04-25 15:01:05,691 - INFO - ✅ 成功抓取 https://raw.githubusercontent.com/fanmingming/live/main/e.xml | 耗时 4.64s | 频道 134 | 节目 36636
+2026-04-25 15:01:08,460 - WARNING - 获取内容失败: https://e.erw.cc/all.xml | 522 Server Error: Connect origin timed out for url: https://
+2026-04-25 15:01:08,478 - WARNING - ⚠️ 失败[1/3] https://e.erw.cc/all.xml | 空内容
+2026-04-25 15:01:09,407 - INFO - 🔄 第2次尝试抓取：https://e.erw.cc/all.xml
+2026-04-25 15:01:20,187 - WARNING - Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'RemoteDisconnected('Remote end closed connection without response')': /all.xml
+2026-04-25 15:01:20,600 - INFO - ✅ 成功抓取 https://epg.27481716.xyz/epg.xml | 耗时 23.18s | 频道 67 | 节目 18219
+2026-04-25 15:01:31,725 - WARNING - 获取内容失败: https://e.erw.cc/all.xml | 522 Server Error: Connect origin timed out for url: https://
+2026-04-25 15:01:31,762 - WARNING - ⚠️ 失败[2/3] https://e.erw.cc/all.xml | 空内容
+2026-04-25 15:01:32,601 - INFO - 🔄 第3次尝试抓取：https://e.erw.cc/all.xml
+2026-04-25 15:01:42,902 - INFO - 时间调整完成：iHOT+8小时 0 条
+2026-04-25 15:01:43,268 - WARNING - 获取内容失败: https://e.erw.cc/all.xml | 522 Server Error: Connect origin timed out for url: https://
+2026-04-25 15:01:43,268 - WARNING - ⚠️ 失败[3/3] https://e.erw.cc/all.xml | 空内容
+2026-04-25 15:01:44,069 - ERROR - 💥 全部重试失败 https://e.erw.cc/all.xml | 耗时 45.76s
+2026-04-25 15:01:44,848 - INFO - 时间调整完成：iHOT+8小时 0 条
+2026-04-25 15:01:48,962 - INFO - 时间调整完成：iHOT+8小时 0 条
+2026-04-25 15:02:18,995 - WARNING - Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='epg.27481716.xyz', port=443): Read timed out. (read timeout=30)")': /epg.xml
+2026-04-25 15:02:51,736 - INFO - 时间调整完成：iHOT+8小时 0 条
+2026-04-25 15:02:51,738 - INFO - ============================================================
+2026-04-25 15:02:51,738 - INFO - 📌 抓取汇总：
+2026-04-25 15:02:51,738 - INFO - ✅ 成功源数量：5
+2026-04-25 15:02:51,738 - INFO - ❌ 失败源数量：1
+2026-04-25 15:02:51,738 - INFO - 📥 总频道数：2680
+2026-04-25 15:02:51,738 - INFO - 📤 总节目数：358534
+2026-04-25 15:02:51,738 - INFO - ============================================================
+2026-04-25 15:02:53,852 - INFO - ✅ 最终EPG已保存 -> output/epg.gz
+2026-04-25 15:02:53,852 - INFO - 📊 最终统计：频道 2212 | 节目 301730
