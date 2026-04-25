@@ -19,7 +19,7 @@ LOG_FILE = "epg_merge.log"
 MAX_WORKERS = 3
 TIMEOUT = 30
 CORE_RETRY_COUNT = 3
-# 时间范围：今天前后各7天，共14天
+
 DAYS_BEFORE = 7
 DAYS_AFTER = 7
 
@@ -50,7 +50,6 @@ class EPGGenerator:
         self.all_programs: List = []
         self.orig_id_to_final_id: Dict[str, str] = {}
 
-        # 时间范围：今天0点 - 7天前 到 今天0点 + 7天后
         now = datetime.now()
         self.today_start = datetime(now.year, now.month, now.day, 0, 0, 0)
         self.start_cutoff = self.today_start - timedelta(days=DAYS_BEFORE)
@@ -95,7 +94,7 @@ class EPGGenerator:
         sources = []
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                for line_num, line in enumerate(f, 1):
+                for line in f:
                     line = line.strip()
                     if not line or line.startswith("#"):
                         continue
@@ -111,29 +110,6 @@ class EPGGenerator:
         content = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', content)
         content = content.replace('& ', '&amp; ')
         return content
-
-    def fetch_single_source(self, source: str) -> Tuple[bool, str, int, int, int]:
-        retry_count = 0
-        start_time = time.time()
-        while retry_count < CORE_RETRY_COUNT:
-            try:
-                logging.info(f"🔄 第{retry_count+1}次尝试抓取：{source}")
-                content = self.get_content(source)
-                if not content:
-                    raise Exception("空内容")
-                tree = etree.fromstring(content.encode("utf-8"))
-                chan_cnt = len(tree.xpath("//channel"))
-                prog_cnt = len(tree.xpath("//programme"))
-                cost = time.time() - start_time
-                logging.info(f"✅ 成功抓取 {source} | 耗时 {cost:.2f}s | 频道 {chan_cnt} | 节目 {prog_cnt}")
-                return True, source, retry_count, chan_cnt, prog_cnt
-            except Exception as e:
-                retry_count += 1
-                logging.warning(f"⚠️ 失败[{retry_count}/{CORE_RETRY_COUNT}] {source} | {str(e)[:60]}")
-                time.sleep(0.8)
-        cost = time.time() - start_time
-        logging.error(f"💥 全部重试失败 {source} | 耗时 {cost:.2f}s")
-        return False, source, CORE_RETRY_COUNT, 0, 0
 
     def process_channels(self, xml_tree):
         channels = xml_tree.xpath("//channel")
@@ -186,20 +162,19 @@ class EPGGenerator:
                 continue
 
             p.set("channel", final_id)
-            
+
             if "iHOT" in final_id or "ihot" in final_id.lower():
                 self.adjust_program_time(p, hours=+8)
 
             st = self.parse_program_time(p.get("start", ""))
             if not st:
                 continue
-            if st < self.start_cutoff or st > self.end_cutoff:
-                continue
 
-            keep.append(p)
+            if self.start_cutoff <= st <= self.end_cutoff:
+                keep.append(p)
 
         self.all_programs.extend(keep)
-        logging.info(f"✅ 保留今天前后各7天，共14天有效节目：{len(keep)} 条")
+        logging.info(f"✅ 保留14天节目：{len(keep)} 条")
 
     def build_xml_tree(self):
         root = etree.Element("tv")
@@ -217,12 +192,10 @@ class EPGGenerator:
         tree = self.build_xml_tree()
         xml_str = etree.tostring(tree, encoding="utf-8", xml_declaration=True, pretty_print=True)
 
-        # 先写一个 epg.xml 文件，再打包
         xml_path = os.path.join(OUTPUT_DIR, "epg.xml")
         with open(xml_path, "wb") as f:
             f.write(xml_str)
 
-        # 再把 epg.xml 打包成 epg.gz
         gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
         with open(xml_path, "rb") as f_in:
             with gzip.open(gz_path, "wb") as f_out:
