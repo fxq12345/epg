@@ -97,7 +97,7 @@ class EPGGenerator:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 sources = []
                 for line_num, line in enumerate(f, 1):
-                    line = line.strip()
+                    line = strip()
                     if line and not line.startswith("#"):
                         if line.startswith(("http://", "https://")):
                             sources.append(line)
@@ -305,4 +305,4 @@ class EPGGenerator:
         # 修复点：完整的字典推导式，所有括号闭合
         with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(sources))) as executor:
             future_to_source = {executor.submit(self.fetch_single_source, s): s for s in sources}
-            for future in as_completed(future_to_source):
+            # 修复点：for循环完整，包含缩进
