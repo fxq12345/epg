@@ -305,4 +305,4 @@ class EPGGenerator:
         # 修复点：完整的字典推导式，所有括号闭合
         with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(sources))) as executor:
             future_to_source = {executor.submit(self.fetch_single_source, s): s for s in sources}
-            for
+            for future in as_completed(future_to_source):
