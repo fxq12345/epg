@@ -303,7 +303,5 @@ class EPGGenerator:
         self.pre_fetch_program_channels(sources)
         successful_sources = 0
         with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(sources))) as executor:
-            # 修复点：字典取值语法完整，包含闭合方括号
-            future_to_source = {executor.submit(self.fetch_single_source, s): s for s in sources}
-            for future in as_completed(future_to_source):
-               
+            # 修复点：完整的字典推导式，无语法截断
+            future_to_source = {exec
