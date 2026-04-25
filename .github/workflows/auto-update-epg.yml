@@ -1,41 +1,23 @@
-name: EPG自动更新
+name: 自动构建与运行
 on:
+  push:
+    branches: [ master ]
   workflow_dispatch:
-  schedule:
-    - cron: '30 16 * * *'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: 设置 Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: 安装依赖
-        run: pip install requests lxml beautifulsoup4
-
-      - name: 抓取潍坊4频道（失败不中断）
-        continue-on-error: true
-        run: python weifang_crawl.py
-
-      - name: 合并生成 output/epg.gz
-        run: python merge.py
-
-      - name: 提交并推送
+      
+      - name: 配置 Python 环境
         run: |
-          git config --global user.name "Actions"
-          git config --global user.email "actions@github.com"
-          git add output/epg.gz
-          if [ -f "weifang.gz" ]; then
-            git add weifang.gz
-          fi
-          git commit -m "更新 EPG $(date +'%Y-%m-%d %H:%M')"
-          git push -f origin master
+          echo "Python 环境配置完成"
+      
+      - name: 运行主脚本
+        run: |
+          python3 main.py  # 你的主脚本入口
+      
+      - name: 完成提示
+        run: |
+          echo "✅ 工作流执行完成！"
