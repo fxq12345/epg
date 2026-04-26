@@ -1,0 +1,10 @@
+2026-04-26 06:02:37,601 - INFO - 读取源：6 个
+2026-04-26 06:02:39,284 - INFO - 本轮保留节目：131021 条
+2026-04-26 06:02:41,433 - INFO - 本轮保留节目：149161 条
+2026-04-26 06:02:42,434 - INFO - 本轮保留节目：1636 条
+2026-04-26 06:02:42,884 - INFO - 本轮保留节目：9058 条
+2026-04-26 06:02:49,105 - WARNING - 获取失败: https://e.erw.cc/all.xml | 522 Server Error: Connect origin timed out for url: https://
+2026-04-26 06:03:07,701 - WARNING - Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='epg.27481716.xyz', port=443): Read timed out. (read timeout=30)")': /epg.xml
+2026-04-26 06:03:24,459 - INFO - 本轮保留节目：17512 条
+2026-04-26 06:03:26,359 - INFO - ✅ 生成完成：output/epg.gz
+2026-04-26 06:03:26,359 - INFO - 📺 频道：2268 | 🎬 节目：308388
