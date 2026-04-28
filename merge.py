@@ -5,6 +5,8 @@ import logging
 import io
 from datetime import datetime, timedelta
 from typing import List, Dict, Set
+# 修复点：导入线程池相关模块
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from lxml import etree
 from requests.adapters import HTTPAdapter
@@ -84,7 +86,7 @@ class EPGGenerator:
         session.mount("http://", adapter)
         session.mount("https://", adapter)
         session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) WebKit/537.36",
             "Accept": "application/xml,text/xml,*/*",
             "Accept-Encoding": "gzip, deflate"
         })
@@ -234,6 +236,7 @@ class EPGGenerator:
         if not sources:
             return
 
+        # 多线程并发获取EPG内容
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             futures = [executor.submit(self.get_content, src) for src in sources]
             for future in as_completed(futures):
