@@ -11,27 +11,41 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: 安装依赖
+      - name: 安装 Python 依赖（完全匹配你的代码）
         run: |
-          sudo apt-get update && sudo apt-get install -y python3-pip
-          pip3 install lxml requests
+          python -m pip install --upgrade pip
+          pip install aiohttp tqdm opencc lxml requests
 
-      - name: 运行EPG生成脚本
+      - name: 运行 EPG 生成脚本
         run: |
           chmod +x merge.py
           python3 merge.py
-          ls -lh output/  # 强制列出文件，调试用
+          ls -lh output/  # 调试用，确保生成文件
 
-      - name: 提交并推送
+      - name: 调试：列出压缩包内容（确认含epg.xml）
         run: |
-          # 强制检查，即使是空文件也提交（用于调试）
+          # 强制检查output目录
+          if [ ! -d "output" ]; then echo "❌ output目录不存在"; exit 1; fi
+          # 列出output下所有文件
+          ls -lh output/
+          # 解压验证（确保压缩包内是epg.xml）
+          if [ -f "output/epg.gz" ]; then gunzip -c output/epg.gz > output/epg.xml && ls -lh output/epg.xml; else echo "❌ epg.gz不存在"; exit 1; fi
+
+      - name: 提交并推送（仅保留output/epg.gz，强制覆盖）
+        run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 强制添加output目录
-          git add -A .
-          git commit -m "自动更新 EPG $(date)" || exit 0
-          git push origin HEAD:master
+          # 强制删除旧的output目录（避免残留）
+          rm -rf output
+          # 重新创建output并仅保留新生成的epg.gz
+          mkdir -p output
+          cp output/epg.gz output/epg.gz  # 确保文件存在
+          
+          git add -A output/epg.gz  # 仅添加epg.gz
+          git commit -m "自动更新 EPG $(date +'%Y-%m-%d %H:%M')" || exit 0
+          git push
