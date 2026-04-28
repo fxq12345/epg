@@ -73,7 +73,7 @@ async def fetch_epg(url):
     """异步拉取EPG（支持gz压缩）"""
     connector = aiohttp.TCPConnector(limit=16, ssl=False)
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) WebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36"
     }
     try:
         async with aiohttp.ClientSession(connector=connector, trust_env=True, headers=headers) as session:
@@ -248,7 +248,7 @@ async def main():
         with tqdm(total=len(channels), desc="🔗 合并EPG", unit="频道") as pbar:
             for cid, display_names in channels.items():
                 if len(programmes[cid]) == 0:
-                    pbar.update(1)
+                    pbar.update(1)  # 修复点：加右括号
                     continue
                 # 匹配已有频道（去重）
                 map_id = next((all_channels_map[dn[0]] for dn in display_names if dn[0] in all_channels_map), cid)
@@ -268,4 +268,13 @@ async def main():
                         if dn not in all_channels_map:
                             all_channel_names[map_id].append([dn, lang])
                             all_channels_map[dn] = map_id
-                pbar.update(1
+                pbar.update(1)  # 修复点：加右括号
+
+    # 写入并压缩EPG
+    print("\n📝 写入最终EPG文件...")
+    write_to_xml(all_channel_id, all_channel_names, all_programmes, 'output/epg.xml')
+    force_compress_gz('output/epg.xml', 'output/epg.gz')
+    print("\n🎉 EPG合并完成！")
+
+if __name__ == '__main__':
+    asyncio.run(main())
