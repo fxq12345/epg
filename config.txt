@@ -1,4 +1,5 @@
+
+https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz
 http://epg.51zmt.top:8000/e.xml
-https://epg.27481716.xyz/epg.xml
 https://live.fanmingming.com/e.xml
 
