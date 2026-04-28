@@ -2,8 +2,6 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 import aiohttp
 import asyncio
-from aiohttp import TCPConnector
-from tqdm.asyncio import tqdm_asyncio
 from datetime import datetime, timezone, timedelta
 import gzip
 import shutil
@@ -16,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 # ================= 三线程配置（严格3线程） =================
 MAX_CONCURRENT_REQUESTS = 3    # 拉取并发3个
-MAX_PARSE_WORKERS = 3          # 解析线程3个（你要的）
+MAX_PARSE_WORKERS = 3          # 解析线程3个
 RETRY_COUNT = 3                # 重试3次
 # ==========================================================
 
@@ -75,17 +73,23 @@ async def fetch_epg_with_retry(url, session, semaphore):
     for attempt in range(1, RETRY_COUNT + 1):
         try:
             async with semaphore:
-                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) WebKit/537.36"}
-                async with session.get(url, timeout=20) as response:
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     response.raise_for_status()
                     if url.endswith('.gz'):
                         return gzip.decompress(await response.read()).decode('utf-8', errors='ignore')
                     return await response.text(encoding='utf-8')
+        except asyncio.TimeoutError:
+            if attempt == RETRY_COUNT:
+                print(f"❌ 超时失败：{url[:40]}...")
+                return None
+            await asyncio.sleep(2)
+            print(f"⚠️  超时重试 {attempt}：{url[:40]}...")
         except Exception as e:
             if attempt == RETRY_COUNT:
                 print(f"❌ 最终拉取失败：{url[:40]}...")
                 return None
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
             print(f"⚠️  重试 {attempt}：{url[:40]}...")
 
 # ========== 三线程解析：单源解析函数 ==========
@@ -94,7 +98,7 @@ def parse_single_epg(content):
         return {}, defaultdict(list)
 
     try:
-        root = ET.fromstring(content)
+        root = ET.fromstring(content.encode('utf-8'))
     except ET.ParseError:
         return {}, defaultdict(list)
 
@@ -105,22 +109,35 @@ def parse_single_epg(content):
     valid_end = now + timedelta(days=7)
 
     for channel in root.findall('channel'):
-        cid = transform2_zh_hans(channel.get('id'))
+        cid = transform2_zh_hans(channel.get('id', ''))
         names = [transform2_zh_hans(n.text) for n in channel.findall('display-name') if n.text]
         if cid not in names:
             names.append(cid)
         channels[cid] = [[n, 'zh'] for n in names]
 
     for prog in root.findall('programme'):
-        cid = transform2_zh_hans(prog.get('channel'))
+        cid = transform2_zh_hans(prog.get('channel', ''))
         name = next((d[0] for d in channels.get(cid, [])), cid)
 
         if any(kw in name for kw in FOREIGN_KEYWORDS):
             continue
 
         try:
-            start = datetime.strptime(re.sub(r'\s+', '', prog.get('start')), "%Y%m%d%H%M%S%z").astimezone(TZ_UTC_PLUS_8)
-            stop = datetime.strptime(re.sub(r'\s+', '', prog.get('stop')), "%Y%m%d%H%M%S%z").astimezone(TZ_UTC_PLUS_8)
+            start_str = re.sub(r'\s+', '', prog.get('start', ''))
+            stop_str = re.sub(r'\s+', '', prog.get('stop', ''))
+            
+            # 处理时区格式
+            if '+' in start_str and ':' in start_str.split('+')[1]:
+                start_str = start_str.replace(':', '')
+            if '-' in start_str and ':' in start_str.split('-')[1]:
+                start_str = start_str.replace(':', '')
+            if '+' in stop_str and ':' in stop_str.split('+')[1]:
+                stop_str = stop_str.replace(':', '')
+            if '-' in stop_str and ':' in stop_str.split('-')[1]:
+                stop_str = stop_str.replace(':', '')
+            
+            start = datetime.strptime(start_str, "%Y%m%d%H%M%S%z").astimezone(TZ_UTC_PLUS_8)
+            stop = datetime.strptime(stop_str, "%Y%m%d%H%M%S%z").astimezone(TZ_UTC_PLUS_8)
         except Exception:
             continue
 
@@ -189,9 +206,9 @@ async def main():
 
     # 1. 异步拉取（3并发）
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
-    async with aiohttp.ClientSession(connector=TCPConnector(limit=MAX_CONCURRENT_REQUESTS, ssl=False)) as session:
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=MAX_CONCURRENT_REQUESTS, ssl=False)) as session:
         tasks = [fetch_epg_with_retry(url, session, semaphore) for url in urls]
-        epg_contents = await tqdm_asyncio.gather(*tasks, desc="📥 拉取EPG（3并发）")
+        epg_contents = await asyncio.gather(*tasks)
 
     valid_contents = [c for c in epg_contents if c]
     print(f"✅ 有效内容：{len(valid_contents)}/{len(urls)}")
@@ -200,7 +217,7 @@ async def main():
     with ThreadPoolExecutor(max_workers=MAX_PARSE_WORKERS) as executor:
         futures = [executor.submit(parse_single_epg, c) for c in valid_contents]
         results = []
-        for future in tqdm_asyncio.as_completed(futures, desc="🔗 三线程解析EPG"):
+        for future in futures:
             try:
                 res = future.result()
                 results.append(res)
