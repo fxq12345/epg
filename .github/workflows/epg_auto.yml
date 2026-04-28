@@ -1,34 +1,48 @@
-name: Auto Fix Workflow
+name: Auto Update EPG (三线程稳定版)
+
 on:
-  push:
-    branches: [ main ]
   schedule:
-    - cron: '0 0 * * *'  # 每天0点运行，可按需修改
+    - cron: '0 16 * * *'  # 北京时间0点
+    - cron: '0 4 * * *'   # 北京时间12点
   workflow_dispatch:  # 手动触发
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 10  # 10分钟超时保护
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
-          # 这里可以根据你的需要安装额外依赖，比如：
-          # pip install requests  # 如果你需要网络请求的话
+          pip install aiohttp tqdm opencc lxml requests
 
-      - name: 运行核心脚本
+      - name: 运行三线程EPG脚本
         run: |
-          # 这里替换成你真正要运行的脚本路径
-          python your_script.py
-      
-      - name: 验证结果并推送
+          python3 merge.py
+          ls -lh output/
+
+      - name: 验证压缩包
         run: |
-          # 验证逻辑，比如检查文件是否存在
-          if [ -f "result.txt" ]; then
-            echo "✅ 运行成功，结果已生成"
-          else
-            echo "❌ 运行失败，未生成结果文件"
-            exit 1
-          fi
+          if [ ! -f "output/epg.gz" ]; then echo "❌ 无epg.gz"; exit 1; fi
+          gunzip -c output/epg.gz > output/epg.xml
+          if [ ! -f "output/epg.xml" ]; then echo "❌ 解压失败"; exit 1; fi
+          echo "✅ 验证通过：epg.gz 内含 epg.xml"
+
+      - name: 提交并推送
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add -f output/epg.gz
+          git commit -m "三线程更新 EPG $(date +'%Y-%m-%d %H:%M')" || exit 0
+          git push
