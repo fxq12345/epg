@@ -1,449 +1,321 @@
 import os
+import sys
 import gzip
 import json
-import re
-import requests
-from lxml import etree
-from datetime import datetime, timedelta
+import time
 import logging
-import io
+import requests
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
+from urllib.parse import urlparse
 
+# ================= 配置区域 =================
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
-OUTPUT_FILE = "epg.gz"
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, "epg.xml.gz")
+# 超时时间（秒）
+TIMEOUT = 30 
+# 日志级别
+LOG_LEVEL = logging.INFO
+# ============================================
 
-# ✅ 前7天 / 后7天
-DAYS_BEFORE = 7
-DAYS_AFTER = 7
-
-# ✅ 自动创建目录
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-# ✅ 设置日志 (增加了更详细的信息)
+# 设置日志格式
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('epg_generator.log', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+    level=LOG_LEVEL,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
+logger = logging.getLogger(__name__)
 
-now = datetime.now()
-today = datetime(now.year, now.month, now.day, 0, 0, 0)
-start_cutoff = today - timedelta(days=DAYS_BEFORE)
-end_cutoff = today + timedelta(days=DAYS_AFTER)
+class EPGMerger:
+    def __init__(self):
+        # 使用字典存储数据，key为channel_id，value为xml元素列表，用于去重和合并
+        self.programs = {} 
+        self.channels_info = {} # 存储channel display-name信息
+        self.session = requests.Session()
+        # 伪装请求头，防止部分源拒绝Python默认请求
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
+        })
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
-
-def fetch(url, index):
-    """获取EPG源，返回二进制内容和格式类型"""
-    try:
-        logging.info(f"[{index}] 📡 正在获取: {url[:50]}...")
-        r = requests.get(url, headers=HEADERS, timeout=8)
-        
-        if r.status_code != 200:
-            logging.warning(f"[{index}] ❌ HTTP错误 {r.status_code}: {url[:50]}...")
-            return None, None, False
-            
-        content = r.content
-        content_type = r.headers.get('Content-Type', '').lower()
-        
-        # 检测格式
-        format_type = detect_format(content, url, content_type)
-        
-        # ✅ 增加日志：如果是百川源（URL包含baichuan/bc），标记出来
-        if "baichuan" in url.lower() or "bc" in url.lower():
-            logging.info(f"[{index}] 🟦 检测到百川源候选: {url}")
-            
-        logging.info(f"[{index}] ✅ 获取成功 ({format_type.upper()}格式)")
-        return content, format_type, True
-        
-    except requests.exceptions.Timeout:
-        logging.warning(f"[{index}] ❌ 超时: {url[:50]}...")
-        return None, None, False
-    except requests.exceptions.ConnectionError:
-        logging.warning(f"[{index}] ❌ 连接失败: {url[:50]}...")
-        return None, None, False
-    except Exception as e:
-        logging.warning(f"[{index}] ❌ 异常: {url[:50]}... 错误: {str(e)[:50]}")
-        return None, None, False
-
-def detect_format(content, url, content_type):
-    """检测内容格式"""
-    # 检查是否为GZIP压缩
-    if content.startswith(b'\x1f\x8b'):
+    def fetch_content(self, url):
+        """下载内容，自动处理Gzip"""
         try:
-            with gzip.GzipFile(fileobj=io.BytesIO(content)) as f:
-                decompressed = f.read()
-                # 递归检测解压后的格式
-                return detect_format(decompressed, url, content_type)
-        except:
-            return "gzip"
-    
-    # 检查是否为XML
-    if b'<?xml' in content[:100] or b'<tv' in content[:100] or b'<TV' in content[:100]:
-        return "xml"
-    
-    # 检查是否为JSON
-    try:
-        if content.startswith(b'{') or content.startswith(b'['):
-            json.loads(content.decode('utf-8', errors='ignore')[:100])
-            return "json"
-    except:
-        pass
-    
-    # 检查是否为M3U格式
-    if b'#EXTM3U' in content[:100]:
-        return "m3u"
-    
-    # 检查是否为TXT格式（包含时间戳的文本）
-    if b'http://' in content[:200] or b'https://' in content[:200]:
-        return "txt"
-    
-    # 根据Content-Type判断
-    if 'xml' in content_type:
-        return "xml"
-    elif 'json' in content_type:
-        return "json"
-    elif 'text' in content_type:
-        return "txt"
-    
-    # 默认尝试解码为文本
-    try:
-        text = content.decode('utf-8', errors='ignore')
-        if len(text) > 100 and ('http://' in text or 'https://' in text):
-            return "txt"
-    except:
-        pass
-    return "unknown"
-
-def parse(content, format_type, index):
-    """解析不同格式的内容为统一的XML结构"""
-    channels = {}
-    programs = []
-    channel_count = 0
-    program_count = 0
-    
-    try:
-        if format_type == "xml":
-            root = etree.fromstring(content)
-        elif format_type == "txt" or format_type == "m3u":
-            # 尝试解析为M3U或TXT格式
-            return parse_text_format(content, index)
-        elif format_type == "json":
-            # ✅ 尝试解析为JSON格式（包含百川源）
-            return parse_json_format(content, index)
-        else:
-            logging.warning(f"[{index}] ⚠️ 不支持格式: {format_type}")
-            return {}, [], 0, 0
-    except Exception as e:
-        logging.warning(f"[{index}] ❌ 解析失败 (根解析器): {str(e)[:50]}")
-        return {}, [], 0, 0
-
-    # XML 标准解析逻辑 (保持不变)
-    # 解析频道
-    for ch in root.xpath("//channel"):
-        cid = ch.get("id")
-        if cid:
-            channels[cid] = ch
-            channel_count += 1
-
-    # 解析节目
-    for p in root.xpath("//programme"):
-        try:
-            start_time = parse_program_time(p.get("start", ""))
-            stop_time = parse_program_time(p.get("stop", ""))
-            if not start_time:
-                continue
-            if start_cutoff <= start_time <= end_cutoff:
-                programs.append(p)
-                program_count += 1
-        except Exception as e:
-            continue
-
-    logging.info(f"[{index}] 📺 频道: {channel_count} 个, 📅 节目: {program_count} 个")
-    return channels, programs, channel_count, program_count
-
-def parse_text_format(content, index):
-    """解析TXT或M3U格式"""
-    channels = {}
-    programs = []
-    channel_count = 0
-    program_count = 0
-    
-    try:
-        text = content.decode('utf-8', errors='ignore')
-        lines = text.split('\n')
-        current_channel = None
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
+            logger.info(f"正在获取: {url}")
+            response = self.session.get(url, timeout=TIMEOUT)
+            response.raise_for_status()
             
-            # 解析M3U格式的频道信息
-            if line.startswith('#EXTINF:'):
-                # 提取频道信息
-                match = re.search(r'tvg-id="([^"]+)"', line)
-                if match:
-                    tvg_id = match.group(1)
-                    # 提取频道名称
-                    name_match = re.search(r',(.+)$', line)
-                    if name_match:
-                        name = name_match.group(1)
-                        # 创建频道元素
-                        channel = etree.Element("channel")
-                        channel.set("id", tvg_id)
-                        display_name = etree.SubElement(channel, "display-name")
-                        display_name.text = name
-                        channels[tvg_id] = channel
-                        channel_count += 1
-                        current_channel = tvg_id
-    except Exception as e:
-        logging.debug(f"[{index}] M3U解析错误: {e}")
-    
-    return channels, programs, channel_count, program_count
-
-def parse_json_format(content, index):
-    """
-    解析JSON格式，特别增加了对百川源 (Baichuan) 的支持
-    百川源结构通常为: [{"tvid": "CCTV1", "name": "CCTV-1", "list": [{"time": "18:00", "program": "新闻联播"}, ...]}, ...]
-    """
-    channels = {}
-    programs = []
-    channel_count = 0
-    program_count = 0
-    
-    try:
-        text = content.decode('utf-8', errors='ignore')
-        data = json.loads(text)
-        
-        # ✅ 核心改动：检测是否为百川源结构
-        # 检查数据是否为列表，且第一个元素包含 'tvid' 或 'name' 字段
-        if isinstance(data, list) and len(data) > 0:
-            first_item = data[0]
-            if 'tvid' in first_item or 'name' in first_item:
-                logging.info(f"[{index}] 🟦 正在解析百川源 (Baichuan JSON) 结构...")
-                
-                for item in data:
-                    tvid = item.get('tvid') or item.get('id')
-                    name = item.get('name')
-                    program_list = item.get('list', [])
-                    
-                    if not tvid or not name:
-                        continue
-                    
-                    # ✅ 生成标准的 XML Channel 节点
-                    channel_id = re.sub(r'[^a-zA-Z0-9_-]', '', tvid) # 清理ID
-                    if channel_id not in channels:
-                        channel_elem = etree.Element("channel")
-                        channel_elem.set("id", channel_id)
-                        
-                        display_name = etree.SubElement(channel_elem, "display-name")
-                        display_name.text = name
-                        
-                        # 可选：添加图标
-                        icon = etree.SubElement(channel_elem, "icon")
-                        icon.set("src", f"https://example.com/logo/{tvid}.png") # 这里可以替换为实际的Logo API
-                        
-                        channels[channel_id] = channel_elem
-                        channel_count += 1
-                    
-                    # ✅ 解析节目单
-                    for prog in program_list:
-                        time_str = prog.get('time', '')
-                        title = prog.get('program', '未知节目')
-                        
-                        # 构建标准的 XML Programme 节点
-                        # 注意：百川源通常只给时间，不给日期和时区，这里需要结合当前日期
-                        # 这里简化处理，假设节目是今天的或者未来几天的
-                        # 实际应用中可能需要更复杂的日期逻辑
-                        start_dt = datetime.combine(today, datetime.strptime(time_str, "%H:%M").time())
-                        
-                        # 简单的时间修正：如果时间比现在早，可能是明天的
-                        if start_dt < now:
-                            start_dt += timedelta(days=1)
-                            
-                        # 检查是否在输出范围内
-                        if start_cutoff <= start_dt <= end_cutoff:
-                            # 假设节目时长1小时 (Stop时间)
-                            stop_dt = start_dt + timedelta(hours=1)
-                            
-                            prog_elem = etree.Element("programme")
-                            prog_elem.set("start", start_dt.strftime("%Y%m%d%H%M%S 0")) # 0 代表时区
-                            prog_elem.set("stop", stop_dt.strftime("%Y%m%d%H%M%S 0"))
-                            prog_elem.set("channel", channel_id)
-                            
-                            title_elem = etree.SubElement(prog_elem, "title")
-                            title_elem.text = title
-                            
-                            programs.append(prog_elem)
-                            program_count += 1
-                
-                logging.info(f"[{index}] ✅ 百川源解析完成: {channel_count} 频道, {program_count} 节目")
-                return channels, programs, channel_count, program_count
-        
-        # 如果不是百川源，尝试其他 JSON 结构 (基础实现)
-        logging.info(f"[{index}] ⚠️ JSON格式非百川结构，跳过解析")
-        
-    except Exception as e:
-        logging.error(f"[{index}] ❌ JSON解析失败 (百川源): {str(e)}")
-    
-    return channels, programs, channel_count, program_count
-
-def parse_program_time(time_str):
-    """
-    解析节目时间，支持多种格式
-    修改：增加了对 "YYYY-MM-DD HH:MM" 格式的支持 (百川源常见格式)
-    """
-    if not time_str:
-        return None
-        
-    try:
-        # 移除时区信息
-        time_part = time_str.split()[0] if ' ' in time_str else time_str
-        
-        # ✅ 增加支持：支持 "YYYY-MM-DD HH:MM" 格式
-        if re.match(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}', time_part):
-            return datetime.strptime(time_part, "%Y-%m-%d %H:%M")
-            
-        # 支持标准的 YYYYMMDDHHMMSS 格式
-        if len(time_part) >= 14:
-            return datetime.strptime(time_part[:14], "%Y%m%d%H%M%S")
-            
-        # 支持短日期格式
-        elif len(time_part) >= 8:
-            for fmt in ["%Y%m%d", "%Y-%m-%d", "%Y/%m/%d"]:
+            # 自动判断是否Gzip
+            if response.headers.get('Content-Encoding') == 'gzip' or url.endswith('.gz'):
                 try:
-                    return datetime.strptime(time_part[:len(fmt)], fmt)
-                except ValueError:
-                    continue
-                    
-    except Exception as e:
-        logging.debug(f"时间解析错误: {time_str} -> {e}")
-        pass
-        
-    return None
-
-def read_config():
-    if not os.path.exists(CONFIG_FILE):
-        logging.error(f"❌ 配置文件 {CONFIG_FILE} 不存在")
-        return []
-        
-    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-        urls = [ line.strip() for line in f if line.strip() and not line.startswith("#") ]
-        
-    logging.info(f"📋 读取到 {len(urls)} 个EPG源")
-    return urls
-
-def main():
-    start_time = datetime.now()
-    logging.info("=" * 60)
-    logging.info("🚀 开始EPG生成任务（多格式支持版 - 增强百川源解析）")
-    logging.info(f"📅 时间范围: {start_cutoff.date()} 至 {end_cutoff.date()}")
-    logging.info("=" * 60)
-    
-    urls = read_config()
-    if not urls:
-        logging.error("❌ 没有可用的EPG源，退出")
-        return
-        
-    all_channels = {}
-    all_programs = []
-    source_stats = []
-
-    for i, url in enumerate(urls, 1):
-        content, format_type, success = fetch(url, i)
-        if success and content and format_type:
-            channels, programs, ch_count, prog_count = parse(content, format_type, i)
+                    with gzip.GzipFile(fileobj=response.raw) as f:
+                        content = f.read()
+                    logger.debug("检测到Gzip压缩，已解压")
+                except:
+                    content = response.content
+            else:
+                content = response.content
             
-            # 合并频道（不重复）
-            for cid, ch in channels.items():
-                if cid not in all_channels:
-                    all_channels[cid] = ch
-                    
-            # 合并节目
-            all_programs.extend(programs)
+            # 尝试检测编码
+            encoding = response.encoding if 'utf-8' in response.encoding.lower() else 'utf-8'
+            return content.decode(encoding, errors='ignore')
             
-            source_stats.append({
-                'index': i,
-                'url': url[:50],
-                'status': '✅ 成功',
-                'format': format_type,
-                'channels': ch_count,
-                'programs': prog_count
-            })
-        else:
-            source_stats.append({
-                'index': i,
-                'url': url[:50],
-                'status': '❌ 失败',
-                'format': 'unknown',
-                'channels': 0,
-                'programs': 0
-            })
+        except Exception as e:
+            logger.error(f"❌ 下载失败: {url} | 错误: {e}")
+            return None
 
-    # 输出源状态汇总
-    logging.info("=" * 60)
-    logging.info("📊 EPG源状态汇总")
-    logging.info("=" * 60)
-    success_count = 0
-    for stat in source_stats:
-        status_icon = "✅" if stat['status'] == '✅ 成功' else "❌"
-        logging.info(f"[{stat['index']}] {status_icon} {stat['status']} | "
-                     f"📁 {stat['format']:6} | 📺 {stat['channels']:3} 频道 | 📅 {stat['programs']:5} 节目")
-        if stat['status'] == '✅ 成功':
-            success_count += 1
+    def parse_time(self, time_str):
+        """
+        统一时间格式转换
+        输入可能是: 20260428154500 (XMLTV标准) 或 2026-04-28 15:45 (百川/JSON常见)
+        输出: 20260428154500 +0800
+        """
+        try:
+            # 处理百川源常见格式: 2026-04-28 15:45:00 或 2026-04-28 15:45
+            if '-' in time_str:
+                time_str = time_str.strip().split('.')[0] # 去掉毫秒
+                if len(time_str) == 16: # YYYY-MM-DD HH:MM
+                    dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
+                elif len(time_str) == 19: # YYYY-MM-DD HH:MM:SS
+                    dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+                else:
+                    return None
+            else:
+                # 处理标准XMLTV格式: YYYYMMDDHHMMSS
+                dt = datetime.strptime(time_str[:14], "%Y%m%d%H%M%S")
             
-    logging.info("-" * 60)
-    logging.info(f"总计: {success_count}/{len(urls)} 个源成功")
+            return dt.strftime("%Y%m%d%H%M%S") + " +0800"
+        except Exception as e:
+            return None
 
-    # 生成EPG文件
-    if all_channels and all_programs:
-        root = etree.Element("tv")
-        root.set("generator-info-name", "EPG多格式合并器 - 增强版")
-        root.set("date", datetime.now().strftime("%Y%m%d%H%M%S"))
-        
-        for ch in all_channels.values():
-            root.append(ch)
-        for p in all_programs:
-            root.append(p)
+    def parse_baichuan_json(self, data, source_name):
+        """解析百川源 (JSON格式)"""
+        try:
+            json_data = json.loads(data)
+            count_p = 0
+            count_c = 0
             
-        xml_bytes = etree.tostring(root, encoding="utf-8", xml_declaration=True)
-        out_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
-        
-        with gzip.open(out_path, "wb") as f:
-            f.write(xml_bytes)
+            # 百川源通常是一个列表或者包含list的字典
+            # 这里做一个通用的遍历逻辑
+            channels = json_data if isinstance(json_data, list) else json_data.get('channels', []) or json_data.get('list', [])
             
-        # 计算文件大小
-        file_size = os.path.getsize(out_path)
-        file_size_kb = file_size / 1024
-        elapsed = datetime.now() - start_time
-        
-        logging.info("=" * 60)
-        logging.info(f"✅ EPG生成完成!")
-        logging.info(f"📁 文件: {out_path}")
-        logging.info(f"📦 大小: {file_size_kb:.1f} KB")
-        logging.info(f"📺 总频道: {len(all_channels)} 个")
-        logging.info(f"📅 总节目: {len(all_programs)} 个")
-        logging.info(f"⏱️ 耗时: {elapsed.total_seconds():.1f} 秒")
-        
-        # 显示格式统计
-        format_stats = {}
-        for stat in source_stats:
-            if stat['status'] == '✅ 成功':
-                fmt = stat['format']
-                format_stats[fmt] = format_stats.get(fmt, 0) + 1
+            # 如果根节点直接包含 tvid，说明只有一个频道
+            if 'tvid' in json_data:
+                channels = [json_data]
+
+            for ch in channels:
+                if not isinstance(ch, dict): continue
                 
-        if format_stats:
-            logging.info(f"📊 格式统计: {', '.join([f'{k}:{v}' for k, v in format_stats.items()])}")
-        logging.info("=" * 60)
+                # 获取频道ID (百川源常用 tvid 或 id)
+                ch_id = str(ch.get('tvid') or ch.get('id') or ch.get('channel_id'))
+                if not ch_id: continue
+                
+                # 获取频道名称
+                ch_name = ch.get('name') or ch.get('channel_name')
+                if not ch_name: continue
+                
+                # 记录频道信息
+                if ch_id not in self.channels_info:
+                    self.channels_info[ch_id] = ch_name
+                    count_c += 1
+                
+                # 获取节目列表 (百川源常用 list, programs, epg_data)
+                programs = ch.get('list') or ch.get('programs') or ch.get('epg_data') or []
+                
+                for p in programs:
+                    if not isinstance(p, dict): continue
+                    
+                    start_raw = p.get('start') or p.get('time') or p.get('showtime')
+                    title = p.get('title') or p.get('program') or p.get('name')
+                    
+                    if not start_raw or not title: continue
+                    
+                    start_time = self.parse_time(str(start_raw))
+                    if not start_time: continue
+                    
+                    # 计算结束时间 (百川源通常有 duration 或 end，如果没有则估算)
+                    end_time = None
+                    if p.get('end'):
+                        end_time = self.parse_time(str(p.get('end')))
+                    elif p.get('duration'):
+                        # 简单处理 duration (假设单位是分钟)
+                        try:
+                            dur = int(p.get('duration'))
+                            start_dt = datetime.strptime(start_time[:-6], "%Y%m%d%H%M%S")
+                            end_dt = start_dt + timedelta(minutes=dur)
+                            end_time = end_dt.strftime("%Y%m%d%H%M%S") + " +0800"
+                        except: pass
+                    
+                    # 如果没有结束时间，默认1小时
+                    if not end_time:
+                        start_dt = datetime.strptime(start_time[:-6], "%Y%m%d%H%M%S")
+                        end_dt = start_dt + timedelta(hours=1)
+                        end_time = end_dt.strftime("%Y%m%d%H%M%S") + " +0800"
+
+                    # 构建 XML 结构
+                    prog_elem = ET.Element("programme", {
+                        "start": start_time,
+                        "stop": end_time,
+                        "channel": ch_id
+                    })
+                    
+                    title_elem = ET.SubElement(prog_elem, "title")
+                    title_elem.text = str(title)
+                    title_elem.set("lang", "zh")
+                    
+                    # 如果有简介
+                    if p.get('desc'):
+                        desc_elem = ET.SubElement(prog_elem, "desc")
+                        desc_elem.text = str(p.get('desc'))
+                        desc_elem.set("lang", "zh")
+
+                    # 存入字典
+                    if ch_id not in self.programs:
+                        self.programs[ch_id] = []
+                    self.programs[ch_id].append(prog_elem)
+                    count_p += 1
+            
+            logger.info(f"✅ 解析成功: {source_name} (百川源格式) - 频道: {count_c}, 节目: {count_p}")
+            return True
+
+        except Exception as e:
+            logger.debug(f"非百川源格式或解析失败: {e}")
+            return False
+
+    def parse_standard_xml(self, data, source_name):
+        """解析标准 XMLTV"""
+        try:
+            # 修复一些常见的XML错误 (如未转义的 &)
+            data = data.replace('&', '&amp;').replace('&amp;amp;', '&amp;')
+            
+            root = ET.fromstring(data)
+            count_p = 0
+            count_c = 0
+            
+            # 解析频道
+            for channel in root.findall("channel"):
+                ch_id = channel.get("id")
+                if ch_id and ch_id not in self.channels_info:
+                    display_name = channel.find("display-name")
+                    name = display_name.text if display_name is not None else ch_id
+                    self.channels_info[ch_id] = name
+                    count_c += 1
+            
+            # 解析节目
+            for prog in root.findall("programme"):
+                ch_id = prog.get("channel")
+                if not ch_id: continue
+                
+                # 简单复制节点
+                # 注意：这里为了性能直接引用，实际合并时可能需要深拷贝，但ElementTree处理大文件时深拷贝很慢
+                # 此处采用重建或移动策略，这里简化为重建关键信息或直接append
+                
+                # 如果是跨源合并，需要确保channel ID存在
+                # 如果原XML里有channel定义但上面没抓到，这里补一下
+                if ch_id not in self.channels_info:
+                     # 尝试寻找display-name
+                     dn = prog.find("title") # 近似处理
+                     self.channels_info[ch_id] = ch_id 
+
+                if ch_id not in self.programs:
+                    self.programs[ch_id] = []
+                
+                self.programs[ch_id].append(prog)
+                count_p += 1
+                
+            logger.info(f"✅ 解析成功: {source_name} (XML格式) - 频道: {count_c}, 节目: {count_p}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ XML解析失败: {source_name} | 错误: {e}")
+            return False
+
+    def process_source(self, url):
+        """处理单个源"""
+        content = self.fetch_content(url)
+        if not content:
+            return False
         
-    else:
-        logging.error("❌ 没有有效的频道或节目，无法生成EPG")
+        # 自动识别格式
+        # 1. 百川源通常是 JSON
+        # 2. 标准源是 XML
+        content_stripped = content.strip()
+        
+        if content_stripped.startswith('{') or content_stripped.startswith('['):
+            # 可能是JSON (百川源)
+            success = self.parse_baichuan_json(content, url)
+            if success: return True
+            
+        # 尝试XML解析
+        # 有时候百川源可能返回的是XML字符串包裹在JSON里，或者纯XML
+        # 这里做一个兜底
+        if '<tv' in content_stripped[:100]: # 简单检查根节点
+            return self.parse_standard_xml(content, url)
+            
+        logger.warning(f"⚠️ 未知格式或解析全失败: {url}")
+        return False
+
+    def save(self):
+        """生成最终文件并Gzip压缩"""
+        logger.info("开始生成合并文件...")
+        
+        # 构建根节点
+        root = ET.Element("tv")
+        root.set("generator-info-name", "EPG-Merger-Python")
+        root.set("generator-info-url", "github.com")
+        
+        # 添加频道信息
+        for ch_id, ch_name in self.channels_info.items():
+            ch_elem = ET.SubElement(root, "channel", {"id": ch_id})
+            dn_elem = ET.SubElement(ch_elem, "display-name")
+            dn_elem.text = ch_name
+            dn_elem.set("lang", "zh")
+            
+        # 添加节目信息
+        total_p = 0
+        for ch_id, programs in self.programs.items():
+            for prog in programs:
+                # 确保channel属性正确
+                prog.set("channel", ch_id)
+                root.append(prog)
+                total_p += 1
+        
+        # 写入Gzip
+        tree = ET.ElementTree(root)
+        
+        # 使用Gzip压缩写入
+        with gzip.open(OUTPUT_FILE, 'wt', encoding='utf-8') as f:
+            # ElementTree 的 write 方法不直接支持 file object 的 text mode with gzip in some envs
+            # 所以这里稍微绕一下，先转字符串再写入，或者使用 bytes
+            # 为了兼容性和内存，我们直接写入 bytes
+            pass 
+
+        # 更稳妥的写法：
+        xml_str = ET.tostring(root, encoding='utf-8', method='xml')
+        with gzip.open(OUTPUT_FILE, 'wb') as f:
+            f.write(xml_str)
+            
+        logger.info(f"🎉 完成！文件已保存至: {OUTPUT_FILE}")
+        logger.info(f"📊 统计: 频道 {len(self.channels_info)} 个, 节目 {total_p} 个")
 
 if __name__ == "__main__":
-    main()
+    if not os.path.exists(CONFIG_FILE):
+        logger.error(f"配置文件 {CONFIG_FILE} 不存在！")
+        sys.exit(1)
+        
+    merger = EPGMerger()
+    
+    with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+        
+    valid_sources = 0
+    for line in lines:
+        url = line.strip()
+        if url and not url.startswith('#'):
+            if merger.process_source(url):
+                valid_sources += 1
+            time.sleep(0.5) # 避免请求过快
+            
+    if valid_sources > 0:
+        merger.save()
+    else:
+        logger.error("没有成功解析到任何有效的数据源。")
