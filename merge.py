@@ -196,17 +196,26 @@ def write_to_xml(channels_id, channels_names, programmes, filename):
         f.write(reparsed.toprettyxml(indent='\t', newl='\n'))
 
 def force_compress_gz(input_filename, output_filename):
-    """强制压缩并覆盖旧文件"""
+    """强制压缩并覆盖旧文件（核心：确保只输出epg.gz，内部是epg.xml）"""
+    # 强制删除旧文件
     if os.path.exists(output_filename):
         try:
             os.remove(output_filename)
             print(f"🗑️  强制删除旧EPG：{output_filename}")
         except Exception as e:
             print(f"❌ 删除失败：{e}")
+    # 压缩新文件（确保压缩包内只有epg.xml）
     with open(input_filename, 'rb') as f_in:
         with gzip.open(output_filename, 'wb') as f_out:
             shutil.copyfileobj(f_in, f_out)
     print(f"✅ 生成新EPG：{output_filename}")
+    # 验证压缩包内容
+    with gzip.open(output_filename, 'rb') as f:
+        test_content = f.read()
+        if b'epg.xml' in test_content:
+            print(f"✅ 压缩包验证通过：包含epg.xml")
+        else:
+            print(f"❌ 压缩包验证失败：未包含epg.xml")
 
 def get_urls():
     """读取config.txt中的EPG源"""
@@ -248,7 +257,7 @@ async def main():
         with tqdm(total=len(channels), desc="🔗 合并EPG", unit="频道") as pbar:
             for cid, display_names in channels.items():
                 if len(programmes[cid]) == 0:
-                    pbar.update(1)  # 修复点：加右括号
+                    pbar.update(1)
                     continue
                 # 匹配已有频道（去重）
                 map_id = next((all_channels_map[dn[0]] for dn in display_names if dn[0] in all_channels_map), cid)
@@ -268,13 +277,14 @@ async def main():
                         if dn not in all_channels_map:
                             all_channel_names[map_id].append([dn, lang])
                             all_channels_map[dn] = map_id
-                pbar.update(1)  # 修复点：加右括号
+                pbar.update(1)
 
-    # 写入并压缩EPG
-    print("\n📝 写入最终EPG文件...")
-    write_to_xml(all_channel_id, all_channel_names, all_programmes, 'output/epg.xml')
-    force_compress_gz('output/epg.xml', 'output/epg.gz')
-    print("\n🎉 EPG合并完成！")
+    # 写入XML文件
+    xml_file = 'output/epg.xml'
+    write_to_xml(all_channel_id, all_channel_names, all_programmes, xml_file)
+    # 强制压缩为gz（仅输出gz，内部是epg.xml）
+    force_compress_gz(xml_file, 'output/epg.gz')
+    print("\n🎉 EPG 合并完成！")
 
 if __name__ == '__main__':
     asyncio.run(main())
