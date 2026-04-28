@@ -19,6 +19,7 @@ MAX_WORKERS = 3
 TIMEOUT = 30
 CORE_RETRY_COUNT = 3
 
+# ✅ 前7天后7天
 DAYS_BEFORE = 7
 DAYS_AFTER = 7
 
@@ -35,12 +36,11 @@ logging.basicConfig(
 
 FOREIGN_KEYWORDS = [
     "BBC", "CNN", "NBC", "FOX", "HBO", "Netflix", "Disney",
-    "欧美", "美国", "英国", "法国", "德国", "日本", "韩国", "泰国",
-    "越南", "印尼", "马来西亚", "新加坡", "澳洲", "欧洲", "美洲",
-    "非洲", "俄罗斯", "印度", "巴西"
+    "欧美", "美国", "英国", "法国", "德国", "日本", "韩国",
+    "泰国", "越南", "印尼", "马来西亚", "新加坡",
+    "澳洲", "欧洲", "美洲", "非洲", "俄罗斯", "印度", "巴西"
 ]
 
-# 山东台完整别名映射（和你json里的名字完全对应）
 SD_ALIAS = {
     "山东齐鲁": ["山东齐鲁", "齐鲁频道", "山东齐鲁hd", "山东齐鲁高清"],
     "山东体育休闲": ["山东体育", "山东体育hd", "山东体育高清", "山东体育休闲频道"],
@@ -50,6 +50,7 @@ SD_ALIAS = {
     "山东综艺": ["山东综艺", "综艺频道", "山东综艺频道"],
     "山东卫视": ["山东卫视", "山东卫视hd", "山东卫视高清"]
 }
+
 # ==================================================
 
 class EPGGenerator:
@@ -60,6 +61,7 @@ class EPGGenerator:
         self.all_programs: List = []
         self.orig_id_to_final_id: Dict[str, str] = {}
         self.alias_map: Dict[str, str] = {}
+
         for main, aliases in SD_ALIAS.items():
             for a in aliases:
                 self.alias_map[a] = main
@@ -80,9 +82,7 @@ class EPGGenerator:
         session.mount("http://", adapter)
         session.mount("https://", adapter)
         session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/xml,text/xml,*/*",
-            "Accept-Encoding": "gzip, deflate"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         })
         return session
 
@@ -137,9 +137,7 @@ class EPGGenerator:
             if any(kw in display_name for kw in FOREIGN_KEYWORDS):
                 continue
 
-            # 别名替换，保证和你json里的epgid对应
             final_name = self.alias_map.get(display_name, display_name)
-
             if not final_name or final_name in self.channel_ids:
                 continue
 
@@ -167,7 +165,7 @@ class EPGGenerator:
                 dt = datetime.strptime(part[:14], "%Y%m%d%H%M%S")
                 dt += timedelta(hours=hours)
                 program.set(attr, dt.strftime("%Y%m%d%H%M%S") + " " + tz)
-            except Exception:
+            except:
                 pass
 
     def process_programs(self, xml_tree):
@@ -181,7 +179,7 @@ class EPGGenerator:
 
             p.set("channel", final_id)
             if "iHOT" in final_id or "ihot" in final_id.lower():
-                self.adjust_program_time(p, hours=+8)
+                self.adjust_program_time(p, hours=8)
 
             st = self.parse_program_time(p.get("start", ""))
             if not st:
@@ -207,11 +205,16 @@ class EPGGenerator:
             return
 
         tree = self.build_xml_tree()
-        xml_str = etree.tostring(tree, encoding="utf-8", xml_declaration=True, pretty_print=True)
+        xml_bytes = etree.tostring(
+            tree,
+            encoding="utf-8",
+            xml_declaration=True,
+            pretty_print=True
+        )
 
         gz_path = os.path.join(OUTPUT_DIR, "epg.gz")
-        with gzip.GzipFile(filename="epg.xml", mode='wb', fileobj=open(gz_path, 'wb')) as f:
-            f.write(xml_str)
+        with gzip.open(gz_path, "wb") as f:
+            f.write(xml_bytes)
 
         logging.info(f"✅ 生成完成：{gz_path}")
         logging.info(f"📺 频道：{len(self.all_channels)} | 🎬 节目：{len(self.all_programs)}")
