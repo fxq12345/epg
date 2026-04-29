@@ -2,13 +2,13 @@ name: EPG 稳定更新
 
 on:
   schedule:
-    - cron: '0 16 * * *'
+    - cron: '0 16 * * *'  # 北京时间 00:00 (UTC 16:00)
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
 
     steps:
       - uses: actions/checkout@v4
@@ -18,15 +18,16 @@ jobs:
           python-version: '3.10'
 
       - name: 安装依赖
-        run: pip install requests lxml
+        run: |
+          pip install -r requirements.txt
 
       - name: 生成 EPG
         run: python epg.py
 
-      - name: 提交
+      - name: 提交更改
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add output/epg.gz
-          git commit -m "EPG $(date +%F)" || echo "no changes"
+          git add output/
+          git commit -m "EPG 更新 $(date +%F)" || echo "无变化"
           git push
