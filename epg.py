@@ -7,6 +7,8 @@ from lxml import etree
 from datetime import datetime, timedelta
 import logging
 import io
+# 繁简转换依赖
+from hanziconv import HanziConv
 
 # =============================================
 # 配置区域 (你可以根据需要修改)
@@ -31,6 +33,13 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+
+# 繁体转简体通用函数
+def to_simple_chars(text):
+    """繁体自动转为简体，空文本直接原样返回"""
+    if not text:
+        return text
+    return HanziConv.toSimplified(text)
 
 # ✅ 核心修改：使用你提供的当前时间 (2026-04-29)
 # 如果你想恢复为自动获取当前时间，可以将下面这行注释掉，取消注释下面的 now = datetime.now()
@@ -162,6 +171,10 @@ def parse(content, format_type, index):
                     # 清理 ID，防止特殊字符
                     clean_cid = re.sub(r'[^a-zA-Z0-9_-]', '', cid)
                     ch.set("id", clean_cid)
+                    # 频道名称繁转简
+                    display_node = ch.find("display-name")
+                    if display_node is not None and display_node.text:
+                        display_node.text = to_simple_chars(display_node.text)
                     channels[clean_cid] = ch
                     channel_count += 1
 
@@ -179,6 +192,10 @@ def parse(content, format_type, index):
                         if channel_id:
                             clean_ch_id = re.sub(r'[^a-zA-Z0-9_-]', '', channel_id)
                             p.set("channel", clean_ch_id)
+                        # 节目名称繁转简
+                        title_node = p.find("title")
+                        if title_node is not None and title_node.text:
+                            title_node.text = to_simple_chars(title_node.text)
                         programs.append(p)
                         program_count += 1
                 except Exception as e:
@@ -228,6 +245,8 @@ def parse_text_format(content, index):
                     name_match = re.search(r',(.+)$', line)
                     if name_match:
                         name = name_match.group(1)
+                        # 繁转简
+                        name = to_simple_chars(name)
                         # 创建频道元素
                         channel = etree.Element("channel")
                         channel.set("id", tvg_id)
@@ -263,13 +282,14 @@ def parse_json_format(content, index):
                     if not tvid or not name:
                         continue
 
-                    # ✅ 生成标准的 XML Channel 节点
+                    # ✅ 生成标准的 XML Channel 节点 + 繁转简
                     channel_id = re.sub(r'[^a-zA-Z0-9_-]', '', tvid)
+                    simple_name = to_simple_chars(name)
                     if channel_id not in channels:
                         channel_elem = etree.Element("channel")
                         channel_elem.set("id", channel_id)
                         display_name = etree.SubElement(channel_elem, "display-name")
-                        display_name.text = name
+                        display_name.text = simple_name
                         channels[channel_id] = channel_elem
                         channel_count += 1
 
@@ -277,6 +297,8 @@ def parse_json_format(content, index):
                     for prog in program_list:
                         time_str = prog.get('time', '')
                         title = prog.get('program', '未知节目')
+                        # 节目名繁转简
+                        title = to_simple_chars(title)
 
                         try:
                             # 构建时间 (假设是今天的)
@@ -363,7 +385,7 @@ def read_config():
 def main():
     start_time = datetime.now()
     logging.info("=" * 60)
-    logging.info("🚀 开始EPG生成任务（多格式支持版 - 增强百川源解析）")
+    logging.info("🚀 开始EPG生成任务（多格式支持版 - 增强百川源解析+繁转简）")
     logging.info(f"📅 时间范围: {start_cutoff.date()} 至 {end_cutoff.date()}")
     logging.info(f"📍 当前地点: 山东省 济南市")
     logging.info("=" * 60)
@@ -426,7 +448,7 @@ def main():
     # 生成EPG文件
     if all_channels and all_programs:
         root = etree.Element("tv")
-        root.set("generator-info-name", "EPG多格式合并器 - 增强版 (济南定制)")
+        root.set("generator-info-name", "EPG多格式合并器 - 繁转简增强版 (济南定制)")
         root.set("date", datetime.now().strftime("%Y%m%d%H%M%S"))
         
         for ch in all_channels.values():
@@ -446,7 +468,7 @@ def main():
         elapsed = datetime.now() - start_time
         
         logging.info("=" * 60)
-        logging.info(f"✅ EPG生成完成!")
+        logging.info(f"✅ EPG生成完成!（已全部繁体转简体）")
         logging.info(f"📁 文件: {out_path}")
         logging.info(f"📦 大小: {file_size_kb:.1f} KB")
         logging.info(f"📺 总频道: {len(all_channels)} 个")
