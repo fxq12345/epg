@@ -1,22 +1,17 @@
 import os
 import re
-import json
 import gzip
-import logging
+import json
 import argparse
-from datetime import datetime, timedelta
-from urllib.parse import urlparse
 import requests
 from lxml import etree
-from dateutil import parser as date_parser
+from datetime import datetime, timedelta
+from dateutil import parser
 
 # ================= 配置区域 =================
 CONFIG_FILE = 'config.txt'
 OUTPUT_DIR = 'output'
-XML_OUTPUT_FILE = f"epg_{datetime.now().strftime('%Y%m%d_%H%M')}.xml.gz"
-BAICHUAN_OUTPUT_FILE = 'epg_baichuan.json'
-DEFAULT_DAYS = 7
-TIMEOUT = 30
+FIXED_FILENAME = 'epg.xml.gz'  # 默认固定文件名
 
 # 日志设置
 logging.basicConfig(
@@ -37,7 +32,7 @@ def parse_program_time(time_str):
         return None
     try:
         if 'T' in time_str:
-            dt = date_parser.isoparse(time_str)
+            dt = parser.isoparse(time_str)
         else:
             time_str = str(time_str).strip()
             if len(time_str) == 10:
@@ -58,7 +53,7 @@ def download_url(url, index):
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
         }
         logger.info(f"🌐 [{index}] 正在下载: {url[:50]}...")
-        response = requests.get(url, headers=headers, timeout=TIMEOUT)
+        response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         
         content_type = response.headers.get('Content-Type', '')
@@ -87,7 +82,7 @@ def parse_xml(content):
             start_str = programme.get('start')
             if start_str:
                 start_dt = parse_program_time(start_str)
-                if start_dt and start_dt < get_current_time() - timedelta(days=DEFAULT_DAYS):
+                if start_dt and start_dt < get_current_time() - timedelta(days=7):
                     continue
             programs.append(programme)
             
@@ -137,7 +132,7 @@ def parse_baichuan(content):
                 if not start_dt:
                     continue
                     
-                if start_dt < get_current_time() - timedelta(days=DEFAULT_DAYS):
+                if start_dt < get_current_time() - timedelta(days=7):
                     continue
                     
                 stop_dt = None
@@ -198,8 +193,19 @@ def main():
         logger.error(f"❌ 找不到配置文件: {CONFIG_FILE}")
         return
         
+    # 读取config.txt，获取固定文件名和EPG源URL
+    fixed_filename = FIXED_FILENAME
+    urls = []
     with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-        urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                if line.startswith('fixed_filename='):
+                    fixed_filename = line.split('=', 1)[1].strip()
+                elif line.startswith('output/'):
+                    continue
+                else:
+                    urls.append(line)
         
     if not urls:
         logger.error("❌ 配置文件中没有有效的URL")
@@ -260,34 +266,33 @@ def main():
         
     logger.info(f"📊 总计: {len(all_channels)} 个频道, {len(all_programs)} 个节目")
     
-    # 生成 XML 文件
-    if args.mode in ['xml', 'both']:
-        xml_path = os.path.join(OUTPUT_DIR, XML_OUTPUT_FILE)
-        try:
-            root = etree.Element("tv")
-            root.set("generator-info-name", "EPG-Merger")
-            root.set("date", datetime.now().strftime("%Y%m%d%H%M%S +0800"))
+    # 生成 XML 文件（固定文件名）
+    xml_path = os.path.join(OUTPUT_DIR, fixed_filename)
+    try:
+        root = etree.Element("tv")
+        root.set("generator-info-name", "EPG-Merger")
+        root.set("date", datetime.now().strftime("%Y%m%d%H%M%S +0800"))
+        
+        for cid in sorted(all_channels.keys()):
+            root.append(all_channels[cid])
             
-            for cid in sorted(all_channels.keys()):
-                root.append(all_channels[cid])
-                
-            for prog in all_programs:
-                root.append(prog)
-                
-            xml_bytes = etree.tostring(root, encoding="utf-8", xml_declaration=True, pretty_print=True)
+        for prog in all_programs:
+            root.append(prog)
             
-            with gzip.open(xml_path, "wb") as f:
-                f.write(xml_bytes)
-                
-            size_kb = os.path.getsize(xml_path) / 1024
-            logger.info(f"✅ 成功生成 XML: {xml_path} ({size_kb:.1f} KB)")
-        except Exception as e:
-            logger.error(f"❌ 写入 XML 失败: {str(e)}")
+        xml_bytes = etree.tostring(root, encoding="utf-8", xml_declaration=True, pretty_print=True)
+        
+        with gzip.open(xml_path, "wb") as f:
+            f.write(xml_bytes)
+            
+        size_kb = os.path.getsize(xml_path) / 1024
+        logger.info(f"✅ 成功生成 XML: {xml_path} ({size_kb:.1f} KB)")
+    except Exception as e:
+        logger.error(f"❌ 写入 XML 失败: {str(e)}")
     
-    # 生成百川 JSON
+    # 生成百川 JSON（可选）
     if args.mode in ['baichuan', 'both']:
         try:
-            baichuan_path = os.path.join(OUTPUT_DIR, BAICHUAN_OUTPUT_FILE)
+            baichuan_path = os.path.join(OUTPUT_DIR, 'epg_baichuan.json')
             baichuan_data = []
             for cid, chan_elem in all_channels.items():
                 chan_info = {
