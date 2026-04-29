@@ -19,7 +19,7 @@ jobs:
 
       - name: 安装依赖
         run: |
-          pip install -r requirements.txt
+          pip install requests lxml python-dateutil
 
       - name: 生成 EPG
         run: python epg.py
@@ -28,6 +28,7 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add output/
+          git add output/epg.xml.gz
+          git add output/epg_baichuan.json
           git commit -m "EPG 更新 $(date +%F)" || echo "无变化"
           git push
