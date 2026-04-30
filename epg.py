@@ -37,34 +37,39 @@ def f2s(text):
         text = text.replace(a, b)
     return text
 
-# 精准正则：只匹配纯CCTV4，不匹配CCTV4K/4+/4超
-REGEX_CCTV4 = re.compile(r'^[\s]*(CCTV|央视)[-_]*4(?!\s*[Kk+])[\s]*$', re.IGNORECASE)
-REGEX_CCTV4K = re.compile(r'^[\s]*(CCTV|央视)[-_]*4K[\s]*$', re.IGNORECASE)
-
+# 精准匹配，不使用复杂正则，避免语法错误
 def unified_name(raw_name):
     n = f2s(raw_name).strip()
     lower_n = n.lower()
 
-    # 精准匹配CCTV4（排除4K）
-    if REGEX_CCTV4.match(n):
-        return "CCTV4"
-    # 精准匹配CCTV4K
-    if REGEX_CCTV4K.match(n):
+    # CCTV4K 先匹配，避免和CCTV4混淆
+    if "cctv4k" in lower_n or "央视4k" in lower_n:
         return "CCTV4K"
+    # CCTV4 精准匹配，排除4K
+    if ("cctv4" in lower_n or "央视4" in lower_n or "中央电视台4" in n) and "4k" not in lower_n and "4+" not in lower_n and "4超" not in lower_n:
+        return "CCTV4"
 
-    if re.match(r'^[\s]*(CCTV|央视)[-_]*5(?!\s*\+|Kk)[\s]*$', re.IGNORECASE, n):
-        return "CCTV5"
+    # CCTV5/5+ 匹配
+    if "cctv5" in lower_n or "央视5" in lower_n:
+        if "5+" not in lower_n and "5k" not in lower_n:
+            return "CCTV5"
     if "cctv5+" in lower_n or "5+体育" in lower_n:
         return "CCTV5+"
+
     if "浙江卫视" in n:
         return "浙江卫视"
-    # 山东体育严格匹配：必须同时有“山东”和“体育”
+    # 山东台精准匹配
     if "山东" in n and "体育" in n and "休闲" not in n:
         return "山东体育"
     if "山东卫视" in n:
         return "山东卫视"
     if "齐鲁" in n:
         return "山东齐鲁"
+    if "山东生活" in n:
+        return "山东生活"
+    if "山东少儿" in n:
+        return "山东少儿"
+
     return n
 
 # 时间区间
@@ -201,7 +206,6 @@ def main():
         sd_ch = etree.Element("channel", id="山东体育")
         etree.SubElement(sd_ch, "display-name").text = "山东体育"
         all_ch["山东体育"] = sd_ch
-
     if "CCTV4" not in all_ch:
         logging.info("🔥 强制兜底：手动添加【CCTV4】频道占位")
         c4_ch = etree.Element("channel", id="CCTV4")
