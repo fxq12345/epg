@@ -63,11 +63,12 @@ def unified_name(raw_name):
         return "山东少儿"
     return n
 
-# 全局时间区间
+# 全局时间基准
 now = datetime.now()
 today = datetime(now.year, now.month, now.day)
-start = today - timedelta(days=DAYS_BEFORE)
-end = today + timedelta(days=DAYS_AFTER)
+
+# 生成全部需要的日期：前7天 ~ 后7天
+all_days = [today + timedelta(days=d) for d in range(-DAYS_BEFORE, DAYS_AFTER+1)]
 
 HEADERS = {"User-Agent":"Mozilla/5.0"}
 
@@ -92,7 +93,7 @@ def parse_time(s):
     except:
         return None
 
-# ==================== XML解析（修复类型错误） ====================
+# ==================== XML解析 + 强行补全历史&未来日期 ====================
 def parse_xml(content, i):
     if content.startswith(b'\x1f\x8b'):
         with gzip.GzipFile(fileobj=io.BytesIO(content)) as f:
@@ -113,29 +114,48 @@ def parse_xml(content, i):
             have_sd = True
             logging.info(f"【第{i}条】找到山东体育: {raw}")
 
+    # 取出原生节目，按频道+时分缓存
+    temp_map = {}
     for p in root.xpath("//programme"):
         rawid = p.get("channel", "")
         un = unified_name(rawid)
         p.set("channel", un)
         t = p.find("title")
-        if t: 
-            t.text = f2s(t.text)
-        progs.append(p)
+        title = f2s(t.text) if t else ""
+        st_str = p.get("start","")
+        try:
+            st_time = datetime.strptime(st_str[:14], "%Y%m%d%H%M%S").time()
+            key = (un, st_time.strftime("%H:%M"))
+            temp_map[key] = title
+        except:
+            continue
 
-    logging.info(f"【第{i}条】XML解析完毕 频道:{len(chs)} 节目:{len(progs)}")
+    # 强行批量生成：前7天~后7天全套节目
+    for base_day in all_days:
+        for (chan, tm), title in temp_map.items():
+            try:
+                bt = datetime.combine(base_day, datetime.strptime(tm, "%H:%M").time())
+                et = bt + timedelta(minutes=30)
+                new_p = etree.Element("programme")
+                new_p.set("start", bt.strftime("%Y%m%d%H%M%S 0"))
+                new_p.set("stop", et.strftime("%Y%m%d%H%M%S 0"))
+                new_p.set("channel", chan)
+                etree.SubElement(new_p, "title").text = title
+                progs.append(new_p)
+            except:
+                continue
+
+    logging.info(f"【第{i}条】XML补全完毕 频道:{len(chs)} 全套节目:{len(progs)}")
     if not have_sd:
         logging.warning(f"【第{i}条】本条无山东体育")
     return chs, progs
 
-# ==================== JSON解析（支持过去7天+未来7天） ====================
+# ==================== JSON解析 完整前后14天 ====================
 def parse_json(content, i):
     data = json.loads(content)
     chs = {}
     progs = []
     have_sd = False
-
-    # 生成 需要回溯的所有日期：过去7天 ~ 今天
-    day_list = [today - timedelta(days=d) for d in range(DAYS_BEFORE, -1, -1)]
 
     for item in data:
         name = item.get("name", "")
@@ -151,13 +171,12 @@ def parse_json(content, i):
             have_sd = True
             logging.info(f"【第{i}条】找到山东体育: {name}")
 
-        # 遍历每一天，同一天节目复用时间戳补全历史
-        for base_day in day_list:
+        # 遍历全部日期：前7天→今天→后7天
+        for base_day in all_days:
             for prog in plist:
                 t = prog.get("time", "")
                 title = f2s(prog.get("program", ""))
                 try:
-                    # 以历史每一天为基准拼接时间
                     bt = datetime.combine(base_day, datetime.strptime(t, "%H:%M").time())
                     et = bt + timedelta(minutes=30)
                     p = etree.Element("programme")
@@ -166,15 +185,15 @@ def parse_json(content, i):
                     p.set("channel", un)
                     etree.SubElement(p, "title").text = title
                     progs.append(p)
-                except Exception as e:
+                except Exception:
                     continue
 
-    logging.info(f"【第{i}条】JSON解析完毕 频道:{len(chs)} 历史+未来节目:{len(progs)}")
+    logging.info(f"【第{i}条】JSON补全完毕 频道:{len(chs)} 全套节目:{len(progs)}")
     if not have_sd:
         logging.warning(f"【第{i}条】本条无山东体育")
     return chs, progs
 
-# ==================== 新增：节目去重逻辑 ====================
+# ==================== 节目去重 ====================
 def dedupe_programs(progs):
     seen = set()
     unique = []
@@ -233,10 +252,9 @@ def main():
 
     logging.info("==========汇总==========")
     logging.info(f"总频道: {len(all_ch)}")
-    logging.info(f"去重后节目数(过去7天+未来7天): {len(all_prog)}")
-    logging.info("✅ CCTV4 已严格匹配")
-    logging.info("✅ 山东体育 已强制保留")
-    logging.info("✅ 节目已完成去重")
+    logging.info(f"最终节目(前7天+后7天全套): {len(all_prog)}")
+    logging.info("✅ 已强制XML+JSON全部补全历史+未来节目")
+    logging.info("✅ CCTV4 / 山东体育 强制兜底")
     
     root = etree.Element("tv")
     for ch in all_ch.values():
