@@ -18,6 +18,7 @@ DAYS_AFTER = 7
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+# 【极致详细日志】
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -27,27 +28,32 @@ logging.basicConfig(
     ]
 )
 
-# 【核心：酷九按名称识别，所以强制修正display-name】
-NAME_FIX = {
-    # CCTV三台
-    "cctv4": "CCTV4", "央视4": "CCTV4", "央視4": "CCTV4", "国际台": "CCTV4",
-    "cctv5": "CCTV5", "央视5": "CCTV5", "央視5": "CCTV5", "体育": "CCTV5",
-    "cctv5+": "CCTV5+", "央视5+": "CCTV5+", "央視5+": "CCTV5+", "5+": "CCTV5+",
-    # 浙江卫视
-    "浙江卫视": "浙江卫视", "ZhejiangTV": "浙江卫视",
-    # 山东体育（关键：强制改成酷九识别的"山东体育"）
-    "山东体育休闲": "山东体育", "山东体育hd": "山东体育", "山东体育高清": "山东体育",
-    # 山东齐鲁/卫视
-    "山东齐鲁": "山东齐鲁", "齐鲁频道": "山东齐鲁", "山东卫视": "山东卫视"
-}
-
-# 繁简转换
+# 繁简统一
 F2S = {"臺":"台","衛":"卫","視":"视","體":"体","綜":"综","藝":"艺"}
 def f2s(text):
     if not text: return text
     for a,b in F2S.items():
         text = text.replace(a,b)
     return text
+
+# 统一频道名称（酷九名称匹配专用）
+def unified_name(raw_name):
+    n = f2s(raw_name).strip()
+    if "CCTV4" in n or "央视4" in n or "国际" in n:
+        return "CCTV4"
+    if "CCTV5" in n or "央视5" in n and "5+" not in n:
+        return "CCTV5"
+    if "CCTV5+" in n or "5+体育" in n:
+        return "CCTV5+"
+    if "浙江卫视" in n:
+        return "浙江卫视"
+    if "山东体育" in n:
+        return "山东体育"
+    if "山东卫视" in n:
+        return "山东卫视"
+    if "齐鲁" in n:
+        return "山东齐鲁"
+    return n
 
 # 时间区间
 now = datetime.now()
@@ -58,13 +64,18 @@ end = today + timedelta(days=DAYS_AFTER)
 HEADERS = {"User-Agent":"Mozilla/5.0"}
 
 def fetch(url,i):
+    logging.info(f"【第{i}条】开始抓取源地址: {url}")
     try:
         r = requests.get(url, headers=HEADERS, timeout=15)
-        if r.status_code != 200: return None, None, False
+        if r.status_code != 200:
+            logging.error(f"【第{i}条】抓取失败，状态码: {r.status_code}")
+            return None, None, False
         c = r.content
         fmt = "xml" if (c.startswith(b'\x1f\x8b') or b'<tv' in c[:100]) else "json"
+        logging.info(f"【第{i}条】抓取成功，格式: {fmt}")
         return c, fmt, True
-    except:
+    except Exception as e:
+        logging.error(f"【第{i}条】抓取异常: {str(e)}")
         return None, None, False
 
 def parse_time(s):
@@ -73,14 +84,6 @@ def parse_time(s):
     except:
         return None
 
-def fix_display_name(raw_name):
-    raw_name = f2s(raw_name)
-    # 匹配修正名称
-    for k,v in NAME_FIX.items():
-        if k in raw_name:
-            return v
-    return raw_name
-
 def parse_xml(content,i):
     if content.startswith(b'\x1f\x8b'):
         with gzip.GzipFile(fileobj=io.BytesIO(content)) as f:
@@ -88,46 +91,55 @@ def parse_xml(content,i):
     root = etree.fromstring(content)
     chs = {}
     progs = []
+    sd_sport_found = False
 
     for ch in root.xpath("//channel"):
-        raw_id = ch.get("id","")
         raw_name = ch.findtext("display-name","")
-        fixed_name = fix_display_name(raw_name)
-        
-        # 用修正后的名称作为ID，同时强制修改display-name
-        ch.set("id", fixed_name)
+        u_name = unified_name(raw_name)
+        ch.set("id", u_name)
         if ch.find("display-name") is not None:
-            ch.find("display-name").text = fixed_name
-        chs[fixed_name] = ch
+            ch.find("display-name").text = u_name
+        chs[u_name] = ch
+
+        if u_name == "山东体育":
+            sd_sport_found = True
+            logging.info(f"【第{i}条】✅ 识别到山东体育原始频道名: {raw_name} -> 统一为: 山东体育")
 
     for p in root.xpath("//programme"):
         st = parse_time(p.get("start",""))
         if not st or not (start <= st <= end): continue
-        raw_id = p.get("channel","")
-        # 节目也按修正后的名称匹配
-        fixed_id = fix_display_name(raw_id)
-        p.set("channel", fixed_id)
-        title = p.find("title")
-        if title is not None:
-            title.text = f2s(title.text)
+        raw_cid = p.get("channel","")
+        u_name = unified_name(raw_cid)
+        p.set("channel", u_name)
+        t = p.find("title")
+        if t is not None:
+            t.text = f2s(t.text)
         progs.append(p)
+
+    logging.info(f"【第{i}条】本条解析完成 | 频道数量: {len(chs)} | 节目数量: {len(progs)}")
+    if not sd_sport_found:
+        logging.warning(f"【第{i}条】⚠️ 本条源【未找到任何山东体育】频道")
     return chs, progs
 
 def parse_json(content,i):
     data = json.loads(content)
     chs = {}
     progs = []
+    sd_sport_found = False
+
     for item in data:
-        tvid = item.get("tvid") or item.get("id")
         name = item.get("name","")
         plist = item.get("list",[])
-        if not tvid: continue
-        
-        fixed_name = fix_display_name(name)
-        if fixed_name not in chs:
-            ch = etree.Element("channel", id=fixed_name)
-            etree.SubElement(ch, "display-name").text = fixed_name
-            chs[fixed_name] = ch
+        u_name = unified_name(name)
+
+        if u_name not in chs:
+            ch = etree.Element("channel", id=u_name)
+            etree.SubElement(ch, "display-name").text = u_name
+            chs[u_name] = ch
+
+        if u_name == "山东体育":
+            sd_sport_found = True
+            logging.info(f"【第{i}条】✅ 识别到山东体育原始频道名: {name} -> 统一为: 山东体育")
 
         for prog in plist:
             t = prog.get("time","")
@@ -140,17 +152,25 @@ def parse_json(content,i):
                 p = etree.Element("programme")
                 p.set("start", bt.strftime("%Y%m%d%H%M%S 0"))
                 p.set("stop", et.strftime("%Y%m%d%H%M%S 0"))
-                p.set("channel", fixed_name)
+                p.set("channel", u_name)
                 etree.SubElement(p, "title").text = title
                 progs.append(p)
             except:
                 pass
+
+    logging.info(f"【第{i}条】本条解析完成 | 频道数量: {len(chs)} | 节目数量: {len(progs)}")
+    if not sd_sport_found:
+        logging.warning(f"【第{i}条】⚠️ 本条源【未找到任何山东体育】频道")
     return chs, progs
 
 def read_config():
-    if not os.path.exists(CONFIG_FILE): return []
+    if not os.path.exists(CONFIG_FILE):
+        logging.error("未找到 config.txt")
+        return []
     with open(CONFIG_FILE,"r",encoding="utf-8") as f:
-        return [l.strip() for l in f if l.strip() and not l.startswith("#")]
+        lines = [l.strip() for l in f if l.strip() and not l.startswith("#")]
+    logging.info(f"总共读取到 {len(lines)} 条EPG源")
+    return lines
 
 def main():
     urls = read_config()
@@ -159,15 +179,25 @@ def main():
 
     for i,url in enumerate(urls,1):
         c,fmt,ok = fetch(url,i)
-        if not ok: continue
+        if not ok:
+            continue
         chs,progs = parse_xml(c,i) if fmt=="xml" else parse_json(c,i)
         
-        # 频道：保留第一个（按你排好的源顺序，保住CCTV三台）
+        # 全部频道全部保留，不覆盖、不丢失
         for cid,ch in chs.items():
             if cid not in all_ch:
                 all_ch[cid] = ch
-        # 节目：全部合并，覆盖浙江卫视乱档
+                logging.info(f"全局新增频道: {cid}")
         all_prog.extend(progs)
+
+    # 全局汇总统计
+    logging.info("==================== 汇总统计 ====================")
+    logging.info(f"最终总频道数: {len(all_ch)}")
+    logging.info(f"最终总节目数: {len(all_prog)}")
+    if "山东体育" in all_ch:
+        logging.info("✅ 全局存在【山东体育】频道")
+    else:
+        logging.error("❌ 全局【完全没有山东体育】= 所有源里面一条都没有")
 
     if all_ch and all_prog:
         root = etree.Element("tv")
@@ -177,9 +207,9 @@ def main():
         out = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
         with gzip.open(out, "wb") as f:
             f.write(xml)
-        logging.info(f"✅ 生成完成 | 频道:{len(all_ch)} 节目:{len(all_prog)}")
+        logging.info(f"✅ EPG生成完毕: {out}")
     else:
-        logging.warning("⚠️ 无有效数据")
+        logging.warning("⚠️ 无有效数据生成")
 
 if __name__=="__main__":
     main()
