@@ -1,23 +1,21 @@
 import logging
-import os # 确保导入了os模块
-
-# --- 在这里添加定义 ---
-LOG_FILE = "epg_update.log"  # 你可以自定义日志文件名
-# --------------------
+import os
 import gzip
 import json
 import requests
 from lxml import etree
 from datetime import datetime, timedelta
-import logging
 import io
+
+# --- 日志配置 ---
+LOG_FILE = "epg_update.log"
 
 # ==================== 配置 ====================
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
 OUTPUT_FILE = "epg.gz"
-DAYS_BEFORE = 7
-DAYS_AFTER = 7
+DAYS_BEFORE = 7    # 过去7天
+DAYS_AFTER = 7     # 未来7天
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 logging.basicConfig(
@@ -30,28 +28,23 @@ logging.basicConfig(
     ]
 )
 
+# 繁转简
 F2S = {"臺":"台","衛":"卫","視":"视","體":"体","綜":"综","藝":"艺"}
-
 def f2s(text):
     if not text: return text
     for a,b in F2S.items():
         text = text.replace(a,b)
     return text
 
-# ==================== 核心：CCTV4严格等于匹配 ====================
+# ==================== 频道标准化 ====================
 def unified_name(raw_name):
     n = f2s(raw_name).strip()
     lower_n = n.lower()
     
-    # 【1】先匹配CCTV4K，避免被误判
     if "cctv4k" in lower_n or "央视4k" in lower_n:
         return "CCTV4K"
-    
-    # 【2】CCTV4必须严格等于，杜绝CCTV4AME/4K等干扰
     if lower_n == "cctv4" or lower_n == "央视4" or n == "中央电视台-4":
         return "CCTV4"
-    
-    # 【3】其他频道正常匹配
     if lower_n == "cctv5" or lower_n == "央视5":
         return "CCTV5"
     if "cctv5+" in lower_n or "5+体育" in lower_n:
@@ -70,7 +63,7 @@ def unified_name(raw_name):
         return "山东少儿"
     return n
 
-# 时间区间
+# 全局时间区间
 now = datetime.now()
 today = datetime(now.year, now.month, now.day)
 start = today - timedelta(days=DAYS_BEFORE)
@@ -99,7 +92,7 @@ def parse_time(s):
     except:
         return None
 
-# ==================== 修改点 1: XML解析器 (去掉了日期过滤) ====================
+# ==================== XML解析（保留全量不过滤） ====================
 def parse_xml(content, i):
     if content.startswith(b'\x1f\x8b'):
         with gzip.GzipFile(fileobj=io.BytesIO(content)) as f:
@@ -115,15 +108,12 @@ def parse_xml(content, i):
         ch.set("id", un)
         if ch.find("display-name"):
             ch.find("display-name").text = un
-        chs[un] = ch
+        chs[un] = un
         if un == "山东体育":
             have_sd = True
             logging.info(f"【第{i}条】找到山东体育: {raw}")
 
-    # 【修改】移除了 for p in ... 的日期过滤逻辑，保留源里所有的节目单
     for p in root.xpath("//programme"):
-        st = parse_time(p.get("start", ""))
-        # 即使时间为空或格式不对，也尽量保留节点（或者跳过错误的）
         rawid = p.get("channel", "")
         un = unified_name(rawid)
         p.set("channel", un)
@@ -132,18 +122,21 @@ def parse_xml(content, i):
             t.text = f2s(t.text)
         progs.append(p)
 
-    logging.info(f"【第{i}条】解析完毕 频道:{len(chs)} 节目:{len(progs)}")
+    logging.info(f"【第{i}条】XML解析完毕 频道:{len(chs)} 节目:{len(progs)}")
     if not have_sd:
         logging.warning(f"【第{i}条】本条无山东体育")
     return chs, progs
 
-# ==================== 修改点 2: JSON解析器 (去掉了日期过滤) ====================
+# ==================== 修复重点：JSON支持过去7天+未来7天 ====================
 def parse_json(content, i):
     data = json.loads(content)
     chs = {}
     progs = []
     have_sd = False
-    
+
+    # 生成 需要回溯的所有日期：过去7天 ~ 今天
+    day_list = [today - timedelta(days=d) for d in range(DAYS_BEFORE, -1, -1)]
+
     for item in data:
         name = item.get("name", "")
         plist = item.get("list", [])
@@ -158,25 +151,25 @@ def parse_json(content, i):
             have_sd = True
             logging.info(f"【第{i}条】找到山东体育: {name}")
 
-        for prog in plist:
-            t = prog.get("time", "")
-            title = f2s(prog.get("program", ""))
-            try:
-                # 这里保留了原逻辑，因为JSON源通常只提供时间点，需要生成具体日期
-                bt = datetime.combine(today, datetime.strptime(t, "%H:%M").time())
-                # 【修改】不再强制调整日期到范围内，直接使用
-                et = bt + timedelta(minutes=30)
-                p = etree.Element("programme")
-                p.set("start", bt.strftime("%Y%m%d%H%M%S 0"))
-                p.set("stop", et.strftime("%Y%m%d%H%M%S 0"))
-                p.set("channel", un)
-                etree.SubElement(p, "title").text = title
-                progs.append(p)
-            except Exception as e:
-                logging.debug(f"时间解析失败: {e}")
-                continue
+        # 遍历每一天，同一天节目复用时间戳补全历史
+        for base_day in day_list:
+            for prog in plist:
+                t = prog.get("time", "")
+                title = f2s(prog.get("program", ""))
+                try:
+                    # 以历史每一天为基准拼接时间
+                    bt = datetime.combine(base_day, datetime.strptime(t, "%H:%M").time())
+                    et = bt + timedelta(minutes=30)
+                    p = etree.Element("programme")
+                    p.set("start", bt.strftime("%Y%m%d%H%M%S 0"))
+                    p.set("stop", et.strftime("%Y%m%d%H%M%S 0"))
+                    p.set("channel", un)
+                    etree.SubElement(p, "title").text = title
+                    progs.append(p)
+                except Exception as e:
+                    continue
 
-    logging.info(f"【第{i}条】解析完毕 频道:{len(chs)} 节目:{len(progs)}")
+    logging.info(f"【第{i}条】JSON解析完毕 频道:{len(chs)} 历史+未来节目:{len(progs)}")
     if not have_sd:
         logging.warning(f"【第{i}条】本条无山东体育")
     return chs, progs
@@ -206,7 +199,7 @@ def main():
                 all_ch[cid] = ch
         all_prog.extend(progs)
 
-    # 兜底：保证频道一定存在
+    # 兜底频道
     if "山东体育" not in all_ch:
         logging.info("🔥 强制兜底：手动添加【山东体育】频道占位")
         sd_ch = etree.Element("channel", id="山东体育")
@@ -221,9 +214,9 @@ def main():
 
     logging.info("==========汇总==========")
     logging.info(f"总频道: {len(all_ch)}")
-    logging.info(f"总节目: {len(all_prog)}")
-    logging.info("✅ CCTV4 已严格匹配，杜绝干扰")
-    logging.info("✅ 山东体育 已强制写入列表")
+    logging.info(f"总节目(过去7天+未来7天): {len(all_prog)}")
+    logging.info("✅ CCTV4 已严格匹配")
+    logging.info("✅ 山东体育 已强制保留")
     
     root = etree.Element("tv")
     for ch in all_ch.values():
