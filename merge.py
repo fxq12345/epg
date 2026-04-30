@@ -1,247 +1,225 @@
-import xml.etree.ElementTree as ET
-from collections import defaultdict
-import aiohttp
-import asyncio
-from datetime import datetime, timezone, timedelta
-import gzip
-import shutil
-from xml.dom import minidom
-import re
-from opencc import OpenCC
 import os
+import gzip
+import re
 import time
+import signal
+import requests
+from lxml import etree
+from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 
-# ================= 三线程配置（严格3线程） =================
-MAX_CONCURRENT_REQUESTS = 3    # 拉取并发3个
-MAX_PARSE_WORKERS = 3          # 解析线程3个
-RETRY_COUNT = 3                # 重试3次
-# ==========================================================
+# 10分钟强制终止
+signal.signal(signal.SIGALRM, lambda s, f: os._exit(0))
+signal.alarm(600)
 
-TZ_UTC_PLUS_8 = timezone(timedelta(hours=8))
-FOREIGN_KEYWORDS = ["BBC", "CNN", "FOX", "HBO", "Netflix", "欧美", "美国", "英国", "法国", "德国"]
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# ============ EPG 预处理规则 ============
-def _adjust_timezone(programme, from_offset, to_offset):
-    for attr in ('start', 'stop'):
-        val = programme.get(attr, '')
-        if from_offset in val:
-            programme.set(attr, val.replace(from_offset, to_offset))
-
-def _make_tz_rule(channel_keyword, from_offset, to_offset):
-    def rule(channel_name, programme):
-        if channel_keyword in channel_name:
-            _adjust_timezone(programme, from_offset, to_offset)
-    return rule
-
-PREPROCESS_RULES = [
-    ("kuke31/xmlgz", _make_tz_rule("天映经典", "+0800", "+0900")),
+# ====================== 潍坊4频道配置 ======================
+WEIFANG_CHANNELS = [
+    ("潍坊新闻频道", "https://m.tvsou.com/epg/db502561"),
+    ("潍坊经济生活频道", "https://m.tvsou.com/epg/47a9d24a"),
+    ("潍坊科教频道", "https://m.tvsou.com/epg/d131d3d1"),
+    ("潍坊公共频道", "https://m.tvsou.com/epg/c06f0cc0")
 ]
 
-def preprocess_epg(url, epg_content):
-    matched_rules = [rule for keyword, rule in PREPROCESS_RULES if keyword in url]
-    if not matched_rules:
-        return epg_content
+WEEK_MAP = {
+    "周一": "w1", "周二": "w2", "周三": "w3", "周四": "w4",
+    "周五": "w5", "周六": "w6", "周日": "w7"
+}
 
+MAX_RETRY = 2
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Linux; Android 12; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36",
+    "Referer": "https://www.bing.com"
+}
+
+SELENIUM_AVAILABLE = False
+
+# ====================== 工具函数 ======================
+def time_to_xmltv(base_date, time_str):
     try:
-        parser = ET.XMLParser(encoding='UTF-8')
-        root = ET.fromstring(epg_content, parser=parser)
-    except ET.ParseError:
-        return epg_content
+        hh, mm = time_str.strip().split(":")
+        dt = datetime.combine(base_date, datetime.min.time().replace(hour=int(hh), minute=int(mm)))
+        return dt.strftime("%Y%m%d%H%M%S +0800")
+    except:
+        return ""
 
-    channel_names = {}
-    for channel in root.findall('channel'):
-        cid = channel.get('id', '')
-        names = [n.text for n in channel.findall('display-name') if n.text]
-        channel_names[cid] = ' '.join(names)
-
-    for programme in root.findall('programme'):
-        cid = programme.get('channel', '')
-        name_str = channel_names.get(cid, cid)
-        for rule in matched_rules:
-            rule(name_str, programme)
-
-    return ET.tostring(root, encoding='unicode')
-# ============ 预处理结束 ============
-
-def transform2_zh_hans(string):
-    cc = OpenCC("t2s")
-    return cc.convert(string)
-
-# ========== 带重试的拉取 ==========
-async def fetch_epg_with_retry(url, session, semaphore):
-    for attempt in range(1, RETRY_COUNT + 1):
-        try:
-            async with semaphore:
-                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                    response.raise_for_status()
-                    if url.endswith('.gz'):
-                        return gzip.decompress(await response.read()).decode('utf-8', errors='ignore')
-                    return await response.text(encoding='utf-8')
-        except asyncio.TimeoutError:
-            if attempt == RETRY_COUNT:
-                print(f"❌ 超时失败：{url[:40]}...")
-                return None
-            await asyncio.sleep(2)
-            print(f"⚠️  超时重试 {attempt}：{url[:40]}...")
-        except Exception as e:
-            if attempt == RETRY_COUNT:
-                print(f"❌ 最终拉取失败：{url[:40]}...")
-                return None
-            await asyncio.sleep(2)
-            print(f"⚠️  重试 {attempt}：{url[:40]}...")
-
-# ========== 三线程解析：单源解析函数 ==========
-def parse_single_epg(content):
-    if not content:
-        return {}, defaultdict(list)
-
+def get_page_html(url):
     try:
-        root = ET.fromstring(content.encode('utf-8'))
-    except ET.ParseError:
-        return {}, defaultdict(list)
+        resp = requests.get(url, headers=HEADERS, timeout=12)
+        resp.encoding = 'utf-8'
+        if re.findall(r'\d{1,2}:\d{2}', resp.text):
+            return resp.text
+    except:
+        pass
+    return ""
 
-    channels = {}
-    programmes = defaultdict(list)
-    now = datetime.now(TZ_UTC_PLUS_8)
-    valid_start = now - timedelta(days=7)
-    valid_end = now + timedelta(days=7)
+# ====================== 抓取潍坊7天 ======================
+def get_channel_7days(channel_name, base_url):
+    week_list = list(WEEK_MAP.items())
+    today = datetime.now()
+    monday = today - timedelta(days=today.weekday())
+    channel_progs = []
 
-    for channel in root.findall('channel'):
-        cid = transform2_zh_hans(channel.get('id', ''))
-        names = [transform2_zh_hans(n.text) for n in channel.findall('display-name') if n.text]
-        if cid not in names:
-            names.append(cid)
-        channels[cid] = [[n, 'zh'] for n in names]
-
-    for prog in root.findall('programme'):
-        cid = transform2_zh_hans(prog.get('channel', ''))
-        name = next((d[0] for d in channels.get(cid, [])), cid)
-
-        if any(kw in name for kw in FOREIGN_KEYWORDS):
+    for i, (week_name, w_suffix) in enumerate(week_list):
+        current_date = monday + timedelta(days=i)
+        url = f"{base_url}/{w_suffix}" if not base_url.endswith('/') else f"{base_url}{w_suffix}"
+        html = get_page_html(url)
+        if not html:
+            time.sleep(1)
             continue
 
+        soup = BeautifulSoup(html, "html.parser")
+        items = soup.find_all("div", class_=re.compile("program-item|time-item", re.I)) or soup.find_all("li")
+        day_progs = []
+        for item in items:
+            txt = item.get_text(strip=True)
+            match = re.search(r'(\d{1,2}:\d{2})\s*(.+)', txt)
+            if not match:
+                continue
+            t_str, title = match.groups()
+            if len(title) < 2 or '广告' in title or '报时' in title:
+                continue
+            day_progs.append((t_str.strip(), title.strip()))
+
+        day_progs = sorted(list(set(day_progs)), key=lambda x: x[0])
+        for idx in range(len(day_progs)):
+            t_start, title = day_progs[idx]
+            if idx < len(day_progs)-1:
+                t_end = day_progs[idx+1][0]
+            else:
+                h, m = map(int, t_start.split(':'))
+                t_end = (datetime(2000,1,1,h,m)+timedelta(minutes=30)).strftime("%H:%M")
+
+            start = time_to_xmltv(current_date, t_start)
+            end = time_to_xmltv(current_date, t_end)
+            if start and end:
+                channel_progs.append((start, end, title))
+        time.sleep(1)
+    return channel_progs
+
+def crawl_weifang():
+    try:
+        root = etree.Element("tv")
+        for ch_name, _ in WEIFANG_CHANNELS:
+            ch = etree.SubElement(root, "channel", id=ch_name)
+            dn = etree.SubElement(ch, "display-name", lang="zh")
+            dn.text = ch_name
+
+        for ch_name, base_url in WEIFANG_CHANNELS:
+            progs = get_channel_7days(ch_name, base_url)
+            for s, e, t in progs:
+                p = etree.SubElement(root, "programme", start=s, stop=e, channel=ch_name)
+                te = etree.SubElement(p, "title", lang="zh")
+                te.text = t
+
+        wf_path = os.path.join(OUTPUT_DIR, "weifang.gz")
+        xml_content = etree.tostring(root, encoding="utf-8", xml_declaration=True)
+        with gzip.open(wf_path, "wb") as f:
+            f.write(xml_content)
+        print(f"✅ 潍坊EPG已保存")
+        return wf_path
+    except Exception as e:
+        print(f"❌ 潍坊抓取失败: {e}")
+        empty = b'<?xml version="1.0" encoding="utf-8"?>\n<tv></tv>'
+        p = os.path.join(OUTPUT_DIR, "weifang.gz")
+        with gzip.open(p, "wb") as f:
+            f.write(empty)
+        return p
+
+# ====================== 抓取上游源 ======================
+def fetch_with_retry(u):
+    for _ in range(MAX_RETRY):
         try:
-            start_str = re.sub(r'\s+', '', prog.get('start', ''))
-            stop_str = re.sub(r'\s+', '', prog.get('stop', ''))
-            
-            # 处理时区格式
-            if '+' in start_str and ':' in start_str.split('+')[1]:
-                start_str = start_str.replace(':', '')
-            if '-' in start_str and ':' in start_str.split('-')[1]:
-                start_str = start_str.replace(':', '')
-            if '+' in stop_str and ':' in stop_str.split('+')[1]:
-                stop_str = stop_str.replace(':', '')
-            if '-' in stop_str and ':' in stop_str.split('-')[1]:
-                stop_str = stop_str.replace(':', '')
-            
-            start = datetime.strptime(start_str, "%Y%m%d%H%M%S%z").astimezone(TZ_UTC_PLUS_8)
-            stop = datetime.strptime(stop_str, "%Y%m%d%H%M%S%z").astimezone(TZ_UTC_PLUS_8)
-        except Exception:
-            continue
+            r = requests.get(u, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code not in (200, 206):
+                time.sleep(1)
+                continue
+            c = gzip.decompress(r.content).decode("utf-8","ignore") if u.endswith(".gz") else r.text
+            c = re.sub(r'[\x00-\x1f]', '', c).replace("& ", "&amp; ")
+            tree = etree.fromstring(c.encode("utf-8"))
+            ch = len(tree.xpath("//channel"))
+            pg = len(tree.xpath("//programme"))
+            if ch>0 and pg>0:
+                return True, tree
+        except:
+            time.sleep(1)
+    return False, None
 
-        if valid_start <= start <= valid_end and valid_start <= stop <= valid_end:
-            p_elem = ET.Element('programme', attrib={
-                "start": start.strftime("%Y%m%d%H%M%S %z"),
-                "stop": stop.strftime("%Y%m%d%H%M%S %z"),
-                "channel": cid
-            })
-            for title in prog.findall('title'):
-                if title.text:
-                    ET.SubElement(p_elem, 'title', lang='zh').text = transform2_zh_hans(title.text.strip())
-            for desc in prog.findall('desc'):
-                if desc.text:
-                    ET.SubElement(p_elem, 'desc', lang='zh').text = transform2_zh_hans(desc.text.strip())
-            programmes[cid].append(p_elem)
-
-    return channels, programmes
-
-# ========== 写入与压缩 ==========
-def write_and_compress(all_channels, all_programmes):
-    if not os.path.exists('output'):
-        os.makedirs('output')
-
-    xml_file = 'output/epg.xml'
-    gz_file = 'output/epg.gz'
-
-    root = ET.Element('tv', attrib={'date': datetime.now(TZ_UTC_PLUS_8).strftime("%Y%m%d%H%M%S %z")})
-    for cid in all_channels:
-        ch_elem = ET.SubElement(root, 'channel', attrib={"id": cid})
-        for name, lang in all_channels[cid]:
-            ET.SubElement(ch_elem, 'display-name', lang=lang).text = name
-    for cid in all_programmes:
-        for prog in all_programmes[cid]:
-            root.append(prog)
-
-    with open(xml_file, 'w', encoding='utf-8') as f:
-        f.write(minidom.parseString(ET.tostring(root)).toprettyxml(indent='\t'))
-
-    if os.path.exists(gz_file):
-        os.remove(gz_file)
-    with open(xml_file, 'rb') as f_in, gzip.open(gz_file, 'wb') as f_out:
-        shutil.copyfileobj(f_in, f_out)
-
-    print(f"\n🎉 三线程合并完成！")
-    print(f"📁 XML: {xml_file}")
-    print(f"📦 GZ: {gz_file}")
-
-# ========== 读取config.txt ==========
-def get_urls():
-    urls = []
-    if os.path.exists('config.txt'):
-        with open('config.txt', 'r', encoding='utf-8') as f:
-            urls = [l.strip() for l in f if l.strip() and not l.startswith('#')]
-    print(f"📥 读取到 {len(urls)} 个源")
-    return urls
-
-# ========== 主函数（三线程） ==========
-async def main():
-    urls = get_urls()
-    if not urls:
+def merge_all(weifang_gz):
+    if not os.path.exists("config.txt"):
+        print("❌ 无config.txt")
         return
 
-    all_channels = {}
-    all_programmes = defaultdict(list)
+    # 修复：open() 函数的正确用法
+    with open("config.txt", "r", encoding="utf-8") as f:
+        urls = [l.strip() for l in f if l.strip().startswith("http")]
 
-    # 1. 异步拉取（3并发）
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
-    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=MAX_CONCURRENT_REQUESTS, ssl=False)) as session:
-        tasks = [fetch_epg_with_retry(url, session, semaphore) for url in urls]
-        epg_contents = await asyncio.gather(*tasks)
+    if not urls:
+        print("❌ 无有效URL")
+        return
 
-    valid_contents = [c for c in epg_contents if c]
-    print(f"✅ 有效内容：{len(valid_contents)}/{len(urls)}")
+    print("开始抓取所有源...")
+    all_trees = []
+    with ThreadPoolExecutor(max_workers=6) as exec:
+        res = {exec.submit(fetch_with_retry, u):u for u in urls}
+        for f in res:
+            ok, t = f.result()
+            if ok:
+                all_trees.append(t)
 
-    # 2. 三线程解析（核心：3个 worker）
-    with ThreadPoolExecutor(max_workers=MAX_PARSE_WORKERS) as executor:
-        futures = [executor.submit(parse_single_epg, c) for c in valid_contents]
-        results = []
-        for future in futures:
-            try:
-                res = future.result()
-                results.append(res)
-            except Exception as e:
-                print(f"❌ 解析出错：{e}")
+    # 读取潍坊
+    try:
+        with gzip.open(weifang_gz, "rb") as f:
+            wf_content = f.read()
+            wf_tree = etree.fromstring(wf_content)
+            all_trees.append(wf_tree)
+    except Exception as e:
+        print(f"⚠️ 潍坊文件读取失败: {e}")
 
-    # 3. 合并
-    for channels, progs in results:
-        for cid in channels:
-            if cid not in all_channels:
-                all_channels[cid] = channels[cid]
-            else:
-                names = [n[0] for n in all_channels[cid]]
-                for name, lang in channels[cid]:
-                    if name not in names:
-                        all_channels[cid].append([name, lang])
-        for cid in progs:
-            if len(all_programmes[cid]) < len(progs[cid]):
-                all_programmes[cid] = progs[cid]
+    # 轻量去重
+    final = etree.Element("tv")
+    seen_channel_id = set()
+    seen_program_key = set()
 
-    # 4. 写出压缩
-    write_and_compress(all_channels, all_programmes)
+    for tree in all_trees:
+        for node in tree:
+            if node.tag == "channel":
+                cid = node.get("id","")
+                if cid and cid not in seen_channel_id:
+                    seen_channel_id.add(cid)
+                    final.append(node)
 
-if __name__ == '__main__':
-    start = time.time()
-    asyncio.run(main())
-    print(f"\n⏱️  总耗时：{time.time() - start:.1f} 秒")
+            elif node.tag == "programme":
+                c = node.get("channel","")
+                s = node.get("start","")
+                e = node.get("stop","")
+                key = (c, s, e)
+                if c and s and e and key not in seen_program_key:
+                    seen_program_key.add(key)
+                    final.append(node)
+
+    # 输出
+    out = os.path.join(OUTPUT_DIR, "epg.gz")
+    xml = etree.tostring(final, encoding="utf-8", xml_declaration=True)
+    with gzip.open(out,"wb") as f:
+        f.write(xml)
+
+    size_mb = os.path.getsize(out)/1024/1024
+    print(f"✅ 合并完成！文件大小：{size_mb:.2f}MB")
+    print(f"✅ 频道：{len(seen_channel_id)}  节目：{len(seen_program_key)}")
+    print("📁 输出：" + out)
+
+# ====================== 入口 ======================
+if __name__ == "__main__":
+    try:
+        wf = crawl_weifang()
+        merge_all(wf)
+        print("🎉 全部完成，所有播放器通用！")
+    except Exception as e:
+        print(f"❌ 失败：{e}")
+        import traceback
+        traceback.print_exc()
