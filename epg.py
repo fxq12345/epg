@@ -28,17 +28,30 @@ logging.basicConfig(
     ]
 )
 
-# 【核心】极简繁简替换 专治央视4/5繁体ID丢失问题
+# 【核心】扩展繁体映射 + 台名兜底匹配（专治央视4/5问题）
 F2S_MAP = {
-    "臺": "台", "衛": "卫", "視": "视", "體": "体",
-    "育": "育", "综": "綜", "藝": "艺"
+    "臺": "台", "衛": "卫", "視": "视", "體": "体", "育": "育",
+    "綜": "综", "藝": "艺", "戲": "戏", "劇": "剧", "央視": "央视",
+    "新聞": "新闻", "財經": "财经", "體育": "体育", "電影": "电影",
+    "少兒": "少儿", "紀錄": "纪录", "國際": "国际", "軍事": "军事",
+    "農業": "农业", "科教": "科教", "戲曲": "戏曲", "音樂": "音乐",
+    "少兒": "少儿", "動畫": "动画", "影視": "影视", "綜藝": "综艺",
+    "央視4": "CCTV4", "央視5": "CCTV5", "央視5+": "CCTV5PLUS",
+    "CCTV-4": "CCTV4", "CCTV-5": "CCTV5", "CCTV4K": "CCTV4K"
 }
+
 def simple_f2s(text):
     if not text:
         return text
     for f, s in F2S_MAP.items():
         text = text.replace(f, s)
     return text
+
+# 台名兜底映射（解决ID不匹配问题）
+CHANNEL_ALIAS = {
+    "cctv4": ["cctv4", "cctv-4", "央视4", "央视国际", "CCTV4中文国际"],
+    "cctv5": ["cctv5", "cctv-5", "央视5", "央视体育", "CCTV5体育"],
+}
 
 # 自动时间区间
 now = datetime.now()
@@ -80,7 +93,7 @@ def detect_format(content, url):
         pass
     return "unknown"
 
-# ==================== 解析 XML（修复繁体央视4/5） ====================
+# ==================== 解析 XML（修复繁体央视4/5 + 台名兜底） ====================
 def parse_xml(content, index):
     channels = {}
     programs = []
@@ -91,23 +104,34 @@ def parse_xml(content, index):
         s = content.decode('utf-8', 'ignore')
         root = etree.fromstring(s.encode('utf-8'))
 
-        # 频道处理：先繁简转换再清理ID
+        # 频道处理：先繁简转换再清理ID + 台名兜底
         for ch in root.xpath("//channel"):
             raw_cid = ch.get("id")
             if not raw_cid:
                 continue
-            # 关键：先繁体转简体，再过滤特殊字符
+            raw_name = ch.findtext("display-name", "")
+            # 先对ID和名称做繁简转换
             fixed_cid = simple_f2s(raw_cid)
-            cid = re.sub(r'[^a-zA-Z0-9_-]', '', fixed_cid)
+            fixed_name = simple_f2s(raw_name)
+            # 台名兜底匹配：如果名称是央视4/5，强制统一ID
+            clean_cid = re.sub(r'[^a-zA-Z0-9_-]', '', fixed_cid).lower()
+            clean_name = re.sub(r'[^a-zA-Z0-9\u4e00-\u9fa5]', '', fixed_name).lower()
 
+            # 央视4/5强制归一化ID
+            if any(kw in clean_cid or kw in clean_name for kw in ["cctv4", "央视4", "国际"]):
+                clean_cid = "cctv4"
+            elif any(kw in clean_cid or kw in clean_name for kw in ["cctv5", "央视5", "体育"]):
+                clean_cid = "cctv5"
+
+            # 更新频道ID和名称
+            ch.set("id", clean_cid)
             name_node = ch.find("display-name")
-            if name_node is not None and name_node.text:
-                name_node.text = simple_f2s(name_node.text)
+            if name_node is not None:
+                name_node.text = fixed_name
+            channels[clean_cid] = ch
+            logging.debug(f"[{index}] 频道归一化 {raw_cid} → {clean_cid} | 名称:{fixed_name}")
 
-            channels[cid] = ch
-            logging.debug(f"[{index}] 频道归一化 {raw_cid} → {cid}")
-
-        # 节目处理：同样转换频道ID，匹配央视4/5
+        # 节目处理：同样转换频道ID + 台名兜底
         for p in root.xpath("//programme"):
             st = parse_program_time(p.get("start"))
             if not st or not (start_cutoff <= st <= end_cutoff):
@@ -115,7 +139,14 @@ def parse_xml(content, index):
 
             raw_p_cid = p.get("channel")
             fixed_p_cid = simple_f2s(raw_p_cid)
-            clean_cid = re.sub(r'[^a-zA-Z0-9_-]', '', fixed_p_cid)
+            clean_cid = re.sub(r'[^a-zA-Z0-9_-]', '', fixed_p_cid).lower()
+
+            # 节目ID也做央视4/5归一化
+            if "cctv4" in clean_cid or "央视4" in clean_cid or "国际" in clean_cid:
+                clean_cid = "cctv4"
+            elif "cctv5" in clean_cid or "央视5" in clean_cid or "体育" in clean_cid:
+                clean_cid = "cctv5"
+
             p.set("channel", clean_cid)
 
             # 节目名称转简体
@@ -144,10 +175,19 @@ def parse_json(content, index):
             if not tvid or not name:
                 continue
 
-            # 繁体修复
+            # 繁体修复 + 央视4/5归一化
             fixed_tvid = simple_f2s(tvid)
-            cid = re.sub(r'[^a-zA-Z0-9_-]', '', fixed_tvid)
+            clean_tvid = re.sub(r'[^a-zA-Z0-9_-]', '', fixed_tvid).lower()
             clear_name = simple_f2s(name)
+            clean_name = re.sub(r'[^a-zA-Z0-9\u4e00-\u9fa5]', '', clear_name).lower()
+
+            # 强制归一化央视4/5
+            if any(kw in clean_tvid or kw in clean_name for kw in ["cctv4", "央视4", "国际"]):
+                cid = "cctv4"
+            elif any(kw in clean_tvid or kw in clean_name for kw in ["cctv5", "央视5", "体育"]):
+                cid = "cctv5"
+            else:
+                cid = clean_tvid
 
             if cid not in channels:
                 ch = etree.Element("channel", id=cid)
