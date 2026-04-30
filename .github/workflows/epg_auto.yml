@@ -23,7 +23,12 @@ jobs:
           pip install -r requirements.txt
 
       - name: 生成 EPG
-        run: python epg.py
+        run: python -u epg.py
+
+      - name: 检查生成结果
+        run: |
+          ls -la output/
+          file output/epg.gz
 
       - name: 提交更新
         run: |
