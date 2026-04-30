@@ -9,11 +9,11 @@ import logging
 import io
 import sys
 
-# ==================== 强制无缓冲输出 ====================
+# 无缓冲输出，GitHub Action 完整看日志
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
-# ==================== 配置 ====================
+# ==================== 配置 前后各7天 合计15天 ====================
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
 OUTPUT_FILE = "epg.gz"
@@ -23,7 +23,6 @@ DAYS_AFTER = 7
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 只输出控制台日志（Action能捕获）
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -32,55 +31,48 @@ logging.basicConfig(
     ]
 )
 
-# 自动时间（不固定）
 now = datetime.now()
 today = datetime(now.year, now.month, now.day, 0, 0, 0)
 start_cutoff = today - timedelta(days=DAYS_BEFORE)
 end_cutoff = today + timedelta(days=DAYS_AFTER)
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
 }
 
-# ==================== 下载 ====================
 def fetch(url, index):
     try:
-        logging.info(f"[{index}] 下载: {url[:50]}...")
-        r = requests.get(url, headers=HEADERS, timeout=15)
+        logging.info(f"[{index}] 下载: {url[:60]}")
+        r = requests.get(url, headers=HEADERS, timeout=20)
         if r.status_code != 200:
-            logging.warning(f"[{index}] 失败 {r.status_code}")
+            logging.warning(f"[{index}] 状态码异常 {r.status_code}")
             return None, None, False
         content = r.content
         fmt = detect_format(content, url)
-        logging.info(f"[{index}] 成功 → {fmt}")
+        logging.info(f"[{index}] 成功识别格式 → {fmt}")
         return content, fmt, True
     except Exception as e:
-        logging.warning(f"[{index}] 异常: {str(e)[:40]}")
+        logging.warning(f"[{index}] 下载异常: {str(e)[:50]}")
         return None, None, False
 
-# ==================== 格式判断（修复） ====================
 def detect_format(content, url):
     if content.startswith(b'\x1f\x8b'):
         try:
             with gzip.GzipFile(fileobj=io.BytesIO(content)) as f:
-                if b'<?xml' in f.read(100):
+                if b'<?xml' in f.read(200):
                     return "xml"
         except:
             pass
-    if b'<?xml' in content[:100] or b'<tv' in content[:100]:
+    if b'<?xml' in content[:200] or b'<tv' in content[:200]:
         return "xml"
     try:
-        content_str = content.decode('utf-8', 'ignore')[:200]
-        if content_str.startswith('{') or content_str.startswith('['):
-            json.loads(content_str)
+        if content.lstrip().startswith(b'{') or content.lstrip().startswith(b'['):
+            json.loads(content.decode("utf-8","ignore")[:300])
             return "json"
     except:
         pass
-    if b'#EXTM3U' in content[:100]:
-        return "m3u"
     return "unknown"
 
-# ==================== 解析 XML ====================
 def parse_xml(content, index):
     channels = {}
     programs = []
@@ -88,36 +80,38 @@ def parse_xml(content, index):
         if content.startswith(b'\x1f\x8b'):
             with gzip.GzipFile(fileobj=io.BytesIO(content)) as f:
                 content = f.read()
-        s = content.decode('utf-8', 'ignore')
-        root = etree.fromstring(s.encode('utf-8'))
-
+        root = etree.fromstring(content)
         for ch in root.xpath("//channel"):
             cid = ch.get("id")
             if cid:
                 cid = re.sub(r'[^a-zA-Z0-9_-]', '', cid)
                 channels[cid] = ch
-
         for p in root.xpath("//programme"):
             st = parse_program_time(p.get("start"))
-            if not st: continue
-            if start_cutoff <= st <= end_cutoff:
+            if st:
                 cid = p.get("channel")
                 if cid:
                     p.set("channel", re.sub(r'[^a-zA-Z0-9_-]', '', cid))
                 programs.append(p)
-
         return channels, programs, len(channels), len(programs)
-    except Exception as e:
-        logging.warning(f"[{index}] XML解析失败: {str(e)[:40]}")
+    except:
         return {}, [], 0, 0
 
-# ==================== 解析 JSON（dy2.fun 百川源专属修复版） ====================
+def parse_program_time(ts):
+    if not ts:
+        return None
+    try:
+        return datetime.strptime(ts[:14], "%Y%m%d%H%M%S")
+    except:
+        return None
+
+# ==================== dy2.fun 专属核心修复函数 ====================
 def parse_json(content, index):
     channels = {}
     programs = []
     try:
-        data = json.loads(content.decode('utf-8', 'ignore'))
-        current_base_day = today
+        data = json.loads(content.decode("utf-8","ignore"))
+        base_date = today
 
         for item in data:
             tvid = item.get("tvid") or item.get("id")
@@ -126,132 +120,119 @@ def parse_json(content, index):
             if not tvid or not name or not plist:
                 continue
 
-            cid = re.sub(r'[^\w\u4e00-\u9fa5]', '', tvid)
+            # 干净频道ID，播放器全部兼容
+            cid = re.sub(r'[^\w\u4e00-\u9fa5]','',tvid)
             if not cid:
-                cid = re.sub(r'[^\w\u4e00-\u9fa5]', '', name)
+                cid = re.sub(r'[^\w\u4e00-\u9fa5]','',name)
 
             if cid not in channels:
                 ch = etree.Element("channel", id=cid)
-                dn = etree.SubElement(ch, "display-name", attrib={"lang": "zh"})
+                dn = etree.SubElement(ch, "display-name", {"lang":"zh"})
                 dn.text = name.strip()
                 channels[cid] = ch
 
-            prog_list_sorted = []
-            for prog in plist:
-                t_str = prog.get("time", "")
-                title = prog.get("program", "").strip()
-                if not t_str or not title:
+            # 节目按时分排序
+            sort_list = []
+            for p in plist:
+                t = p.get("time","")
+                title = p.get("program","")
+                if not t or not title:
                     continue
                 try:
-                    hm = datetime.strptime(t_str.strip(), "%H:%M")
-                    prog_list_sorted.append((hm.hour * 60 + hm.minute, t_str, title))
+                    hh,mm = map(int,t.split(":"))
+                    sort_list.append( (hh*60+mm, t, title) )
                 except:
                     continue
+            sort_list.sort()
+            total = len(sort_list)
 
-            prog_list_sorted.sort()
-            total_cnt = len(prog_list_sorted)
-
-            for idx, (_, t_str, title) in enumerate(prog_list_sorted):
+            for idx, (_, t_str, title) in enumerate(sort_list):
                 try:
                     hh, mm = map(int, t_str.split(":"))
+
+                    # 凌晨0-6点自动算第二天，解决全部挤同一天
                     if 0 <= hh < 6:
-                        use_day = current_base_day + timedelta(days=1)
+                        cur_day = base_date + timedelta(days=1)
                     else:
-                        use_day = current_base_day
+                        cur_day = base_date
 
-                    start_dt = datetime.combine(use_day, datetime.min.time()).replace(hour=hh, minute=mm)
+                    start_dt = datetime.combine(cur_day, datetime.min.time()).replace(hour=hh,minute=mm)
 
-                    if idx < total_cnt - 1:
-                        next_hh, next_mm = map(int, prog_list_sorted[idx+1][1].split(":"))
-                        next_start = datetime.combine(use_day, datetime.min.time()).replace(hour=next_hh, minute=next_mm)
-                        if next_hh >= 0 and next_hh < 6:
-                            next_start += timedelta(days=1)
-                        stop_dt = next_start
+                    # 动态自动算结束时间，不用固定30分钟
+                    if idx < total - 1:
+                        next_hh, next_mm = map(int, sort_list[idx+1][1].split(":"))
+                        if 0 <= next_hh <6:
+                            next_day = cur_day + timedelta(days=1)
+                        else:
+                            next_day = cur_day
+                        stop_dt = datetime.combine(next_day, datetime.min.time()).replace(hour=next_hh,minute=next_mm)
                     else:
                         stop_dt = start_dt + timedelta(minutes=60)
 
-                    if start_dt < start_cutoff or start_dt > end_cutoff:
+                    # 只过滤超远期，近期全部保留，解决前面几天空白
+                    if stop_dt < start_cutoff - timedelta(days=2):
                         continue
 
                     p = etree.Element("programme")
                     p.set("start", start_dt.strftime("%Y%m%d%H%M%S +0800"))
                     p.set("stop", stop_dt.strftime("%Y%m%d%H%M%S +0800"))
                     p.set("channel", cid)
-                    title_elem = etree.SubElement(p, "title", attrib={"lang": "zh"})
-                    title_elem.text = title
+                    etree.SubElement(p, "title", {"lang":"zh"}).text = title
                     programs.append(p)
-
-                except Exception as e:
-                    logging.debug(f"JSON单节目解析失败:{t_str} {str(e)[:30]}")
+                except:
                     continue
-
         return channels, programs, len(channels), len(programs)
     except Exception as e:
-        logging.warning(f"[{index}] JSON整体解析异常: {str(e)[:50]}")
+        logging.warning(f"JSON解析异常:{str(e)}")
         return {}, [], 0, 0
 
-# ==================== 时间解析 ====================
-def parse_program_time(ts):
-    if not ts: return None
-    try:
-        p = ts.split()[0]
-        if len(p) >= 14:
-            return datetime.strptime(p[:14], "%Y%m%d%H%M%S")
-    except:
-        pass
-    return None
-
-# ==================== 读取配置 ====================
 def read_config():
     if not os.path.exists(CONFIG_FILE):
         return []
-    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+    with open(CONFIG_FILE,"r",encoding="utf-8") as f:
         return [l.strip() for l in f if l.strip() and not l.startswith("#")]
 
-# ==================== 主程序 ====================
 def main():
     urls = read_config()
     if not urls:
-        logging.error("无数据源")
+        logging.error("config.txt 无链接")
         return
 
     all_ch = {}
     all_prog = []
 
-    for i, url in enumerate(urls, 1):
-        c, fmt, ok = fetch(url, i)
-        if not ok or not c:
+    for i,url in enumerate(urls,1):
+        c,fmt,ok = fetch(url,i)
+        if not ok:
             continue
         if fmt == "xml":
-            chs, progs, _, _ = parse_xml(c, i)
+            chs,progs,_,_ = parse_xml(c,i)
         elif fmt == "json":
-            chs, progs, _, _ = parse_json(c, i)
+            chs,progs,_,_ = parse_json(c,i)
         else:
-            logging.warning(f"[{i}] 未知格式，跳过")
             continue
 
-        for cid, ch in chs.items():
-            if cid not in all_ch:
-                all_ch[cid] = ch
+        for k,v in chs.items():
+            if k not in all_ch:
+                all_ch[k] = v
         all_prog.extend(progs)
 
-    if all_ch and all_prog:
+    if all_ch:
         root = etree.Element("tv")
-        root.set("generator-info-name", "Tak IPTV Tool")
-        root.set("generator-info-url", "https://github.com/taksssss/iptv-tool")
         for ch in all_ch.values():
             root.append(ch)
         for p in all_prog:
             root.append(p)
 
         xml_bytes = etree.tostring(root, encoding="utf-8", xml_declaration=True, pretty_print=True)
-        out = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
-        with gzip.open(out, "wb") as f:
+        out_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
+        with gzip.open(out_path, "wb") as f:
             f.write(xml_bytes)
-        
-        # 同时print和log，确保Action能看到
-        print(f"✅ 生成成功：{len(all_ch)}频道 {len(all_prog)}节目")
-        logging.info(f"✅ 生成成功：{len(all_ch)}频道 {len(all_prog)}节目")
+
+        print(f"========================================")
+        print(f"✅ 完成！频道总数:{len(all_ch)}  节目总数:{len(all_prog)}")
+        print(f"✅ 时间范围：前7天 + 后7天")
+        print(f"========================================")
 
 if __name__ == "__main__":
     main()
