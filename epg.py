@@ -92,7 +92,7 @@ def parse_time(s):
     except:
         return None
 
-# ==================== XML解析（保留全量不过滤） ====================
+# ==================== XML解析（修复类型错误） ====================
 def parse_xml(content, i):
     if content.startswith(b'\x1f\x8b'):
         with gzip.GzipFile(fileobj=io.BytesIO(content)) as f:
@@ -108,7 +108,7 @@ def parse_xml(content, i):
         ch.set("id", un)
         if ch.find("display-name"):
             ch.find("display-name").text = un
-        chs[un] = un
+        chs[un] = ch
         if un == "山东体育":
             have_sd = True
             logging.info(f"【第{i}条】找到山东体育: {raw}")
@@ -127,7 +127,7 @@ def parse_xml(content, i):
         logging.warning(f"【第{i}条】本条无山东体育")
     return chs, progs
 
-# ==================== 修复重点：JSON支持过去7天+未来7天 ====================
+# ==================== JSON解析（支持过去7天+未来7天） ====================
 def parse_json(content, i):
     data = json.loads(content)
     chs = {}
@@ -174,6 +174,22 @@ def parse_json(content, i):
         logging.warning(f"【第{i}条】本条无山东体育")
     return chs, progs
 
+# ==================== 新增：节目去重逻辑 ====================
+def dedupe_programs(progs):
+    seen = set()
+    unique = []
+    for p in progs:
+        key = (
+            p.get("channel", ""),
+            p.get("start", ""),
+            p.get("stop", "")
+        )
+        if key not in seen:
+            seen.add(key)
+            unique.append(p)
+    logging.info(f"节目去重完成：{len(progs)} → {len(unique)}")
+    return unique
+
 def read_config():
     if not os.path.exists(CONFIG_FILE):
         logging.error("无config.txt")
@@ -212,11 +228,15 @@ def main():
         etree.SubElement(c4_ch, "display-name").text = "CCTV4"
         all_ch["CCTV4"] = c4_ch
 
+    # 去重
+    all_prog = dedupe_programs(all_prog)
+
     logging.info("==========汇总==========")
     logging.info(f"总频道: {len(all_ch)}")
-    logging.info(f"总节目(过去7天+未来7天): {len(all_prog)}")
+    logging.info(f"去重后节目数(过去7天+未来7天): {len(all_prog)}")
     logging.info("✅ CCTV4 已严格匹配")
     logging.info("✅ 山东体育 已强制保留")
+    logging.info("✅ 节目已完成去重")
     
     root = etree.Element("tv")
     for ch in all_ch.values():
