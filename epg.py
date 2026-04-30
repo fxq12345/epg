@@ -27,18 +27,21 @@ logging.basicConfig(
     ]
 )
 
-# 频道强制映射
-FORCE_MAP = {
-    # CCTV 核心三台
-    "cctv4": "cctv4", "央视4": "cctv4", "央視4": "cctv4", "国际台": "cctv4",
-    "cctv5": "cctv5", "央视5": "cctv5", "央視5": "cctv5", "体育": "cctv5",
-    "cctv5+": "cctv5plus", "央视5+": "cctv5plus", "央視5+": "cctv5plus", "5+": "cctv5plus",
-    # 地方台补充
-    "浙江卫视": "zhejiangtv", "ZhejiangTV": "zhejiangtv",
-    "山东体育": "sdsportstv", "山东体育休闲": "sdsportstv"
+# 【核心：酷九按名称识别，所以强制修正display-name】
+NAME_FIX = {
+    # CCTV三台
+    "cctv4": "CCTV4", "央视4": "CCTV4", "央視4": "CCTV4", "国际台": "CCTV4",
+    "cctv5": "CCTV5", "央视5": "CCTV5", "央視5": "CCTV5", "体育": "CCTV5",
+    "cctv5+": "CCTV5+", "央视5+": "CCTV5+", "央視5+": "CCTV5+", "5+": "CCTV5+",
+    # 浙江卫视
+    "浙江卫视": "浙江卫视", "ZhejiangTV": "浙江卫视",
+    # 山东体育（关键：强制改成酷九识别的"山东体育"）
+    "山东体育休闲": "山东体育", "山东体育hd": "山东体育", "山东体育高清": "山东体育",
+    # 山东齐鲁/卫视
+    "山东齐鲁": "山东齐鲁", "齐鲁频道": "山东齐鲁", "山东卫视": "山东卫视"
 }
 
-# 繁简互换
+# 繁简转换
 F2S = {"臺":"台","衛":"卫","視":"视","體":"体","綜":"综","藝":"艺"}
 def f2s(text):
     if not text: return text
@@ -57,12 +60,10 @@ HEADERS = {"User-Agent":"Mozilla/5.0"}
 def fetch(url,i):
     try:
         r = requests.get(url, headers=HEADERS, timeout=15)
-        if r.status_code != 200:
-            return None, None, False
+        if r.status_code != 200: return None, None, False
         c = r.content
-        if c.startswith(b'\x1f\x8b') or b'<tv' in c[:100]:
-            return c, "xml", True
-        return c, "json", True
+        fmt = "xml" if (c.startswith(b'\x1f\x8b') or b'<tv' in c[:100]) else "json"
+        return c, fmt, True
     except:
         return None, None, False
 
@@ -72,14 +73,13 @@ def parse_time(s):
     except:
         return None
 
-def get_std_channel(raw_cid, raw_name):
-    raw_cid = f2s(raw_cid)
+def fix_display_name(raw_name):
     raw_name = f2s(raw_name)
-    for k,v in FORCE_MAP.items():
-        if k in raw_cid or k in raw_name:
-            return v, raw_name
-    newid = re.sub(r"[^a-zA-Z0-9_-]","",raw_cid).lower()
-    return newid, raw_name
+    # 匹配修正名称
+    for k,v in NAME_FIX.items():
+        if k in raw_name:
+            return v
+    return raw_name
 
 def parse_xml(content,i):
     if content.startswith(b'\x1f\x8b'):
@@ -90,24 +90,26 @@ def parse_xml(content,i):
     progs = []
 
     for ch in root.xpath("//channel"):
-        raw = ch.get("id","")
-        name = ch.findtext("display-name","")
-        std_id, std_name = get_std_channel(raw, name)
-        ch.set("id", std_id)
+        raw_id = ch.get("id","")
+        raw_name = ch.findtext("display-name","")
+        fixed_name = fix_display_name(raw_name)
+        
+        # 用修正后的名称作为ID，同时强制修改display-name
+        ch.set("id", fixed_name)
         if ch.find("display-name") is not None:
-            ch.find("display-name").text = std_name
-        chs[std_id] = ch
+            ch.find("display-name").text = fixed_name
+        chs[fixed_name] = ch
 
     for p in root.xpath("//programme"):
         st = parse_time(p.get("start",""))
-        if not st or not (start <= st <= end):
-            continue
-        raw_cid = f2s(p.get("channel",""))
-        std_id, _ = get_std_channel(raw_cid, "")
-        p.set("channel", std_id)
-        t = p.find("title")
-        if t is not None:
-            t.text = f2s(t.text)
+        if not st or not (start <= st <= end): continue
+        raw_id = p.get("channel","")
+        # 节目也按修正后的名称匹配
+        fixed_id = fix_display_name(raw_id)
+        p.set("channel", fixed_id)
+        title = p.find("title")
+        if title is not None:
+            title.text = f2s(title.text)
         progs.append(p)
     return chs, progs
 
@@ -120,12 +122,12 @@ def parse_json(content,i):
         name = item.get("name","")
         plist = item.get("list",[])
         if not tvid: continue
-        std_id, std_name = get_std_channel(tvid, name)
-
-        if std_id not in chs:
-            ch = etree.Element("channel", id=std_id)
-            etree.SubElement(ch, "display-name").text = std_name
-            chs[std_id] = ch
+        
+        fixed_name = fix_display_name(name)
+        if fixed_name not in chs:
+            ch = etree.Element("channel", id=fixed_name)
+            etree.SubElement(ch, "display-name").text = fixed_name
+            chs[fixed_name] = ch
 
         for prog in plist:
             t = prog.get("time","")
@@ -138,7 +140,7 @@ def parse_json(content,i):
                 p = etree.Element("programme")
                 p.set("start", bt.strftime("%Y%m%d%H%M%S 0"))
                 p.set("stop", et.strftime("%Y%m%d%H%M%S 0"))
-                p.set("channel", std_id)
+                p.set("channel", fixed_name)
                 etree.SubElement(p, "title").text = title
                 progs.append(p)
             except:
@@ -160,11 +162,11 @@ def main():
         if not ok: continue
         chs,progs = parse_xml(c,i) if fmt=="xml" else parse_json(c,i)
         
-        # 频道：保留第一个优质源，保住CCTV三台正常
+        # 频道：保留第一个（按你排好的源顺序，保住CCTV三台）
         for cid,ch in chs.items():
             if cid not in all_ch:
                 all_ch[cid] = ch
-        # 节目：全部合并！！不丢弃任何一条，后面优质节目自动补上今日乱档
+        # 节目：全部合并，覆盖浙江卫视乱档
         all_prog.extend(progs)
 
     if all_ch and all_prog:
@@ -172,10 +174,10 @@ def main():
         for ch in all_ch.values(): root.append(ch)
         for p in all_prog: root.append(p)
         xml = etree.tostring(root, encoding="utf-8", xml_declaration=True)
-        out_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
-        with gzip.open(out_path, "wb") as f:
+        out = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
+        with gzip.open(out, "wb") as f:
             f.write(xml)
-        logging.info(f"✅ 生成完成 | 频道:{len(all_ch)} 总节目:{len(all_prog)}")
+        logging.info(f"✅ 生成完成 | 频道:{len(all_ch)} 节目:{len(all_prog)}")
     else:
         logging.warning("⚠️ 无有效数据")
 
