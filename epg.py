@@ -1,4 +1,9 @@
-import os
+import logging
+import os # 确保导入了os模块
+
+# --- 在这里添加定义 ---
+LOG_FILE = "epg_update.log"  # 你可以自定义日志文件名
+# --------------------
 import gzip
 import json
 import requests
