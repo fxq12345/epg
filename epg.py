@@ -1,7 +1,6 @@
 import os
 import gzip
 import json
-import re
 import requests
 from lxml import etree
 from datetime import datetime, timedelta
@@ -31,39 +30,36 @@ logging.basicConfig(
 
 F2S = {"臺":"台","衛":"卫","視":"视","體":"体","綜":"综","藝":"艺"}
 def f2s(text):
-    if not text:
-        return text
-    for a, b in F2S.items():
-        text = text.replace(a, b)
+    if not text: return text
+    for a,b in F2S.items():
+        text = text.replace(a,b)
     return text
 
-# 精准匹配，不使用复杂正则，避免语法错误
+# ==================== 核心：CCTV4严格等于匹配 ====================
 def unified_name(raw_name):
     n = f2s(raw_name).strip()
     lower_n = n.lower()
 
-    # CCTV4K 先匹配，避免和CCTV4混淆
+    # 【1】先匹配CCTV4K，避免被误判
     if "cctv4k" in lower_n or "央视4k" in lower_n:
         return "CCTV4K"
-    # CCTV4 精准匹配，排除4K
-    if ("cctv4" in lower_n or "央视4" in lower_n or "中央电视台4" in n) and "4k" not in lower_n and "4+" not in lower_n and "4超" not in lower_n:
+
+    # 【2】CCTV4必须严格等于，杜绝CCTV4AME/4K等干扰
+    if lower_n == "cctv4" or lower_n == "央视4" or n == "中央电视台-4":
         return "CCTV4"
 
-    # CCTV5/5+ 匹配
-    if "cctv5" in lower_n or "央视5" in lower_n:
-        if "5+" not in lower_n and "5k" not in lower_n:
-            return "CCTV5"
+    # 【3】其他频道正常匹配
+    if lower_n == "cctv5" or lower_n == "央视5":
+        return "CCTV5"
     if "cctv5+" in lower_n or "5+体育" in lower_n:
         return "CCTV5+"
-
     if "浙江卫视" in n:
         return "浙江卫视"
-    # 山东台精准匹配
     if "山东" in n and "体育" in n and "休闲" not in n:
         return "山东体育"
     if "山东卫视" in n:
         return "山东卫视"
-    if "齐鲁" in n:
+    if "山东齐鲁" in n or "齐鲁频道" in n:
         return "山东齐鲁"
     if "山东生活" in n:
         return "山东生活"
@@ -215,8 +211,8 @@ def main():
     logging.info("==========汇总==========")
     logging.info(f"总频道: {len(all_ch)}")
     logging.info(f"总节目: {len(all_prog)}")
+    logging.info("✅ CCTV4 已严格匹配，杜绝干扰")
     logging.info("✅ 山东体育 已强制写入列表")
-    logging.info("✅ CCTV4 独立不与4K冲突")
 
     root = etree.Element("tv")
     for ch in all_ch.values():
