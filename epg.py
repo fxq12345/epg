@@ -38,7 +38,7 @@ def f2s(text):
         text = text.replace(a,b)
     return text
 
-# 统一频道名称（酷九专用）
+# 统一频道名称（酷九专用）【已修复：不再乱合并外省体育休闲】
 def unified_name(raw_name):
     n = f2s(raw_name).strip().lower()
     if "cctv4" in n or "央视4" in n or "国际" in n:
@@ -50,7 +50,8 @@ def unified_name(raw_name):
         return "CCTV5+"
     if "浙江卫视" in n:
         return "浙江卫视"
-    if "山东体育" in n or "体育休闲" in n:
+    # 修复核心：必须同时有【山东+体育】才是山东体育，外省体育休闲全部放过
+    if "山东" in n and "体育" in n:
         return "山东体育"
     if "山东卫视" in n:
         return "山东卫视"
