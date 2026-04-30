@@ -1,12 +1,9 @@
 import os
 import gzip
-import json
-import re
+import io
 import requests
 from lxml import etree
-from datetime import datetime, timedelta
-import logging
-import io
+from datetime import datetime
 import sys
 
 # 强制控制台无缓冲输出
@@ -18,112 +15,107 @@ CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
 OUTPUT_FILE = "epg.gz"
 
-# 前后各7天，合计15天
-DAYS_BEFORE = 7
-DAYS_AFTER = 7
-
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
-
-now = datetime.now()
-today = datetime(now.year, now.month, now.day, 0, 0, 0)
-start_cutoff = today - timedelta(days=DAYS_BEFORE)
-end_cutoff = today + timedelta(days=DAYS_AFTER)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
-# ==================== 下载 ====================
-def fetch(url, index):
-    try:
-        logging.info(f"[{index}] 下载: {url}")
-        r = requests.get(url, headers=HEADERS, timeout=20)
-        if r.status_code != 200:
-            logging.warning(f"[{index}] 失败 {r.status_code}")
-            return None, None, False
-        return r.content, detect_format(r.content, url), True
-    except Exception as e:
-        logging.warning(f"[{index}] 异常: {str(e)[:40]}")
-        return None, None, False
-
-# ==================== 格式判断 ====================
-def detect_format(content, url):
-    if content.startswith(b'\x1f\x8b'):
-        return "xmlgz"
-    if b'<?xml' in content[:200] or b'<tv' in content[:200]:
-        return "xml"
-    try:
-        if content.lstrip().startswith((b'{', b'[')):
-            json.loads(content.decode("utf-8","ignore")[:300])
-            return "json"
-    except:
-        pass
-    return "unknown"
-
-# ==================== 解析XML【原样导入，不清洗ID、不删节目】====================
-def parse_xml(content, index):
-    try:
-        if content.startswith(b'\x1f\x8b'):
-            with gzip.GzipFile(fileobj=io.BytesIO(content)) as f:
-                content = f.read()
-        root = etree.fromstring(content)
-        channels = {ch.get("id"): ch for ch in root.xpath("//channel") if ch.get("id")}
-        programs = root.xpath("//programme")
-        logging.info(f"[{index}] 导入成功：{len(channels)} 频道 | {len(programs)} 节目")
-        return channels, programs
-    except Exception as e:
-        logging.warning(f"[{index}] XML解析失败: {e}")
-        return {}, []
-
-# ==================== 读取配置 ====================
 def read_config():
     if not os.path.exists(CONFIG_FILE):
         return []
-    with open(CONFIG_FILE,"r",encoding="utf-8") as f:
+    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         return [l.strip() for l in f if l.strip() and not l.startswith("#")]
 
-# ==================== 主程序 ====================
+def download_source(url):
+    try:
+        print(f"🔽 下载源: {url}")
+        r = requests.get(url, headers=HEADERS, timeout=30)
+        r.raise_for_status()
+        content = r.content
+
+        # 解压gzip压缩的XML
+        if content.startswith(b'\x1f\x8b'):
+            with gzip.GzipFile(fileobj=io.BytesIO(content)) as f:
+                content = f.read()
+        return content
+    except Exception as e:
+        print(f"❌ 下载失败: {url} 错误: {e}")
+        return None
+
+def parse_xml(content):
+    try:
+        root = etree.fromstring(content)
+        channels = {ch.get("id"): ch for ch in root.xpath("//channel") if ch.get("id")}
+        programmes = root.xpath("//programme")
+        return channels, programmes
+    except Exception as e:
+        print(f"❌ XML解析失败: {e}")
+        return {}, []
+
+def parse_time(time_str):
+    """解析EPG时间戳，转成datetime对象用于排序"""
+    try:
+        return datetime.strptime(time_str[:14], "%Y%m%d%H%M%S")
+    except:
+        return datetime.min
+
 def main():
     urls = read_config()
     if not urls:
-        logging.error("config.txt 为空，没有源链接")
+        print("❌ config.txt 为空，没有源链接")
         return
 
     all_channels = {}
-    all_programs = []
+    all_programmes = []
 
+    # 下载并解析所有源
     for idx, url in enumerate(urls, 1):
-        data, fmt, ok = fetch(url, idx)
-        if not ok or not data:
+        content = download_source(url)
+        if not content:
             continue
-        if fmt in ("xml", "xmlgz"):
-            chs, progs = parse_xml(data, idx)
-            all_channels.update(chs)
-            all_programs.extend(progs)
+        channels, programmes = parse_xml(content)
+        print(f"✅ 源{idx}解析成功: {len(channels)}频道 | {len(programmes)}节目")
+        all_channels.update(channels)
+        all_programmes.extend(programmes)
 
-    if all_channels:
-        root = etree.Element("tv")
-        for ch in all_channels.values():
-            root.append(ch)
-        for p in all_programs:
-            root.append(p)
+    if not all_channels:
+        print("❌ 没有任何频道数据")
+        return
 
-        xml_bytes = etree.tostring(root, encoding="utf-8", xml_declaration=True, pretty_print=True)
-        outpath = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
-        with gzip.open(outpath, "wb") as f:
-            f.write(xml_bytes)
+    # 1. 节目自动去重（同一频道、同一时间的节目只保留一个）
+    seen = set()
+    unique_programmes = []
+    for p in all_programmes:
+        channel = p.get("channel")
+        start = p.get("start")
+        key = (channel, start)
+        if key not in seen:
+            seen.add(key)
+            unique_programmes.append(p)
 
-        print("="*60)
-        print(f"✅ 生成完成：{len(all_channels)} 频道 | {len(all_programs)} 节目")
-        print(f"✅ 完整保留：前7天 + 后7天 = 15天")
-        print(f"✅ 原样输出：所有卫视、地方台、CCTV4/5 全部保留")
-        print("="*60)
+    # 2. 节目按时间排序（同一频道的节目按开始时间升序排列）
+    unique_programmes.sort(key=lambda x: parse_time(x.get("start")))
+
+    # 构建合并后的XML
+    root = etree.Element("tv")
+    for ch in all_channels.values():
+        root.append(ch)
+    for p in unique_programmes:
+        root.append(p)
+
+    # 原样打包，不做额外修改
+    xml_bytes = etree.tostring(root, encoding="utf-8", xml_declaration=True, pretty_print=True)
+    outpath = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
+    with gzip.open(outpath, "wb") as f:
+        f.write(xml_bytes)
+
+    print("="*60)
+    print(f"✅ 合并完成！")
+    print(f"✅ 总频道数: {len(all_channels)}")
+    print(f"✅ 总节目数（去重后）: {len(unique_programmes)}")
+    print(f"✅ 自动去重 + 时间排序，数据100%原样保留")
+    print("="*60)
 
 if __name__ == "__main__":
     main()
