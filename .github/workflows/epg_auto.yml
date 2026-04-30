@@ -11,9 +11,11 @@ jobs:
     timeout-minutes: 3
 
     steps:
-      - uses: actions/checkout@v4
+      # 升级到兼容 Node.js 24 的 checkout@v5
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v4
+      # 升级到兼容 Node.js 24 的 setup-python@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.10'
 
