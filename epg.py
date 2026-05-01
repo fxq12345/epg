@@ -63,8 +63,8 @@ def unified_name(raw_name):
         return "山东少儿"
     return n
 
-# 全局时间基准
-now = datetime.now()
+# ==================== 修复GitHub Actions时区1970致命BUG ====================
+now = datetime.utcnow() + timedelta(hours=8)
 today = datetime(now.year, now.month, now.day)
 
 # 生成全部需要的日期：前7天 ~ 后7天
