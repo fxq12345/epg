@@ -14,12 +14,6 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: 强制设置系统北京时间
-        run: |
-          sudo timedatectl set-timezone Asia/Shanghai
-          sudo apt install -y tzdata
-          echo "Asia/Shanghai" | sudo tee /etc/timezone
-
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
