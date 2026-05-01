@@ -6,6 +6,13 @@ import requests
 from lxml import etree
 from datetime import datetime, timedelta
 import io
+import locale
+
+# --- 时区强制统一 彻底解决1970 ---
+try:
+    locale.setlocale(locale.LC_TIME, 'zh_CN.UTF-8')
+except:
+    pass
 
 # --- 日志配置 ---
 LOG_FILE = "epg_update.log"
@@ -14,8 +21,8 @@ LOG_FILE = "epg_update.log"
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
 OUTPUT_FILE = "epg.gz"
-DAYS_BEFORE = 7    # 过去7天
-DAYS_AFTER = 7     # 未来7天
+DAYS_BEFORE = 7
+DAYS_AFTER = 7
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 logging.basicConfig(
@@ -63,11 +70,12 @@ def unified_name(raw_name):
         return "山东少儿"
     return n
 
-# ==================== 修复GitHub Actions时区1970致命BUG ====================
-now = datetime.utcnow() + timedelta(hours=8)
-today = datetime(now.year, now.month, now.day)
+# ==================== 标准北京时间获取 彻底修复1970 ====================
+def get_cn_time():
+    return datetime.now().astimezone().replace(tzinfo=None)
 
-# 生成全部需要的日期：前7天 ~ 后7天
+now = get_cn_time()
+today = datetime(now.year, now.month, now.day)
 all_days = [today + timedelta(days=d) for d in range(-DAYS_BEFORE, DAYS_AFTER+1)]
 
 HEADERS = {"User-Agent":"Mozilla/5.0"}
@@ -87,13 +95,7 @@ def fetch(url, i):
         logging.error(f"【第{i}条】异常:{str(e)}")
         return None, None, False
 
-def parse_time(s):
-    try:
-        return datetime.strptime(s[:14], "%Y%m%d%H%M%S")
-    except:
-        return None
-
-# ==================== XML解析 + 强行补全历史&未来日期 ====================
+# ==================== XML解析 + 补全日期 ====================
 def parse_xml(content, i):
     if content.startswith(b'\x1f\x8b'):
         with gzip.GzipFile(fileobj=io.BytesIO(content)) as f:
@@ -112,9 +114,7 @@ def parse_xml(content, i):
         chs[un] = ch
         if un == "山东体育":
             have_sd = True
-            logging.info(f"【第{i}条】找到山东体育: {raw}")
 
-    # 取出原生节目，按频道+时分缓存
     temp_map = {}
     for p in root.xpath("//programme"):
         rawid = p.get("channel", "")
@@ -130,7 +130,6 @@ def parse_xml(content, i):
         except:
             continue
 
-    # 强行批量生成：前7天~后7天全套节目
     for base_day in all_days:
         for (chan, tm), title in temp_map.items():
             try:
@@ -145,12 +144,10 @@ def parse_xml(content, i):
             except:
                 continue
 
-    logging.info(f"【第{i}条】XML补全完毕 频道:{len(chs)} 全套节目:{len(progs)}")
-    if not have_sd:
-        logging.warning(f"【第{i}条】本条无山东体育")
+    logging.info(f"【第{i}条】XML频道:{len(chs)} 节目:{len(progs)}")
     return chs, progs
 
-# ==================== JSON解析 完整前后14天 ====================
+# ==================== JSON解析 + 补全日期 ====================
 def parse_json(content, i):
     data = json.loads(content)
     chs = {}
@@ -169,9 +166,7 @@ def parse_json(content, i):
             
         if un == "山东体育":
             have_sd = True
-            logging.info(f"【第{i}条】找到山东体育: {name}")
 
-        # 遍历全部日期：前7天→今天→后7天
         for base_day in all_days:
             for prog in plist:
                 t = prog.get("time", "")
@@ -188,25 +183,23 @@ def parse_json(content, i):
                 except Exception:
                     continue
 
-    logging.info(f"【第{i}条】JSON补全完毕 频道:{len(chs)} 全套节目:{len(progs)}")
-    if not have_sd:
-        logging.warning(f"【第{i}条】本条无山东体育")
+    logging.info(f"【第{i}条】JSON频道:{len(chs)} 节目:{len(progs)}")
     return chs, progs
 
-# ==================== 节目去重 ====================
+# ==================== 强力去重 解决文件超大 ====================
 def dedupe_programs(progs):
     seen = set()
     unique = []
     for p in progs:
         key = (
-            p.get("channel", ""),
-            p.get("start", ""),
-            p.get("stop", "")
+            p.get("channel", "").strip(),
+            p.get("start", "").strip(),
+            p.get("stop", "").strip()
         )
         if key not in seen:
             seen.add(key)
             unique.append(p)
-    logging.info(f"节目去重完成：{len(progs)} → {len(unique)}")
+    logging.info(f"节目去重瘦身：{len(progs)} → {len(unique)}")
     return unique
 
 def read_config():
@@ -219,6 +212,10 @@ def read_config():
     return lines
 
 def main():
+    # 清空旧垃圾
+    if os.path.exists(os.path.join(OUTPUT_DIR, OUTPUT_FILE)):
+        os.remove(os.path.join(OUTPUT_DIR, OUTPUT_FILE))
+
     urls = read_config()
     all_ch = {}
     all_prog = []
@@ -236,25 +233,21 @@ def main():
 
     # 兜底频道
     if "山东体育" not in all_ch:
-        logging.info("🔥 强制兜底：手动添加【山东体育】频道占位")
         sd_ch = etree.Element("channel", id="山东体育")
         etree.SubElement(sd_ch, "display-name").text = "山东体育"
         all_ch["山东体育"] = sd_ch
         
     if "CCTV4" not in all_ch:
-        logging.info("🔥 强制兜底：手动添加【CCTV4】频道占位")
         c4_ch = etree.Element("channel", id="CCTV4")
         etree.SubElement(c4_ch, "display-name").text = "CCTV4"
         all_ch["CCTV4"] = c4_ch
 
-    # 去重
+    # 强力去重瘦身
     all_prog = dedupe_programs(all_prog)
 
     logging.info("==========汇总==========")
     logging.info(f"总频道: {len(all_ch)}")
-    logging.info(f"最终节目(前7天+后7天全套): {len(all_prog)}")
-    logging.info("✅ 已强制XML+JSON全部补全历史+未来节目")
-    logging.info("✅ CCTV4 / 山东体育 强制兜底")
+    logging.info(f"最终有效节目: {len(all_prog)}")
     
     root = etree.Element("tv")
     for ch in all_ch.values():
@@ -266,7 +259,7 @@ def main():
     out = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
     with gzip.open(out, "wb") as f:
         f.write(xml)
-    logging.info(f"✅ 生成完成: {out}")
+    logging.info(f"✅ 瘦身版EPG生成完成: {out}")
 
 if __name__ == "__main__":
     main()
