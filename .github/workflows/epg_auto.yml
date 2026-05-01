@@ -1,5 +1,8 @@
 name: EPG 稳定更新
 
+env:
+  TZ: Asia/Shanghai
+
 on:
   schedule:
     - cron: '0 16 * * *'
@@ -11,10 +14,8 @@ jobs:
     timeout-minutes: 3
 
     steps:
-      # 升级到兼容 Node.js 24 的 checkout@v5
       - uses: actions/checkout@v5
 
-      # 升级到兼容 Node.js 24 的 setup-python@v6
       - uses: actions/setup-python@v6
         with:
           python-version: '3.10'
@@ -22,7 +23,7 @@ jobs:
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install requests lxml
 
       - name: 生成 EPG
         run: python epg.py
