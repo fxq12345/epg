@@ -6,13 +6,6 @@ import requests
 from lxml import etree
 from datetime import datetime, timedelta
 import io
-import locale
-
-# --- 时区强制统一 彻底解决1970 ---
-try:
-    locale.setlocale(locale.LC_TIME, 'zh_CN.UTF-8')
-except:
-    pass
 
 # --- 日志配置 ---
 LOG_FILE = "epg_update.log"
@@ -21,8 +14,8 @@ LOG_FILE = "epg_update.log"
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
 OUTPUT_FILE = "epg.gz"
-DAYS_BEFORE = 7
-DAYS_AFTER = 7
+DAYS_BEFORE = 7    # 过去7天
+DAYS_AFTER = 7     # 未来7天
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 logging.basicConfig(
@@ -70,11 +63,8 @@ def unified_name(raw_name):
         return "山东少儿"
     return n
 
-# ==================== 标准北京时间获取 彻底修复1970 ====================
-def get_cn_time():
-    return datetime.now().astimezone().replace(tzinfo=None)
-
-now = get_cn_time()
+# ==================== 时间基准（GitHub Actions时区兼容） ====================
+now = datetime.utcnow() + timedelta(hours=8)
 today = datetime(now.year, now.month, now.day)
 all_days = [today + timedelta(days=d) for d in range(-DAYS_BEFORE, DAYS_AFTER+1)]
 
@@ -95,7 +85,7 @@ def fetch(url, i):
         logging.error(f"【第{i}条】异常:{str(e)}")
         return None, None, False
 
-# ==================== XML解析 + 补全日期 ====================
+# ==================== XML解析 + 日期补全（修正时间格式） ====================
 def parse_xml(content, i):
     if content.startswith(b'\x1f\x8b'):
         with gzip.GzipFile(fileobj=io.BytesIO(content)) as f:
@@ -103,7 +93,6 @@ def parse_xml(content, i):
     root = etree.fromstring(content)
     chs = {}
     progs = []
-    have_sd = False
     
     for ch in root.xpath("//channel"):
         raw = ch.findtext("display-name", "")
@@ -112,8 +101,6 @@ def parse_xml(content, i):
         if ch.find("display-name"):
             ch.find("display-name").text = un
         chs[un] = ch
-        if un == "山东体育":
-            have_sd = True
 
     temp_map = {}
     for p in root.xpath("//programme"):
@@ -130,14 +117,16 @@ def parse_xml(content, i):
         except:
             continue
 
+    # 生成节目时，时间格式修正为酷9可识别的格式
     for base_day in all_days:
         for (chan, tm), title in temp_map.items():
             try:
                 bt = datetime.combine(base_day, datetime.strptime(tm, "%H:%M").time())
                 et = bt + timedelta(minutes=30)
                 new_p = etree.Element("programme")
-                new_p.set("start", bt.strftime("%Y%m%d%H%M%S 0"))
-                new_p.set("stop", et.strftime("%Y%m%d%H%M%S 0"))
+                # 关键修复：去掉空格和0，改为标准格式
+                new_p.set("start", bt.strftime("%Y%m%d%H%M%S"))
+                new_p.set("stop", et.strftime("%Y%m%d%H%M%S"))
                 new_p.set("channel", chan)
                 etree.SubElement(new_p, "title").text = title
                 progs.append(new_p)
@@ -147,12 +136,11 @@ def parse_xml(content, i):
     logging.info(f"【第{i}条】XML频道:{len(chs)} 节目:{len(progs)}")
     return chs, progs
 
-# ==================== JSON解析 + 补全日期 ====================
+# ==================== JSON解析 + 日期补全（修正时间格式） ====================
 def parse_json(content, i):
     data = json.loads(content)
     chs = {}
     progs = []
-    have_sd = False
 
     for item in data:
         name = item.get("name", "")
@@ -163,9 +151,6 @@ def parse_json(content, i):
             ch = etree.Element("channel", id=un)
             etree.SubElement(ch, "display-name").text = un
             chs[un] = ch
-            
-        if un == "山东体育":
-            have_sd = True
 
         for base_day in all_days:
             for prog in plist:
@@ -175,8 +160,9 @@ def parse_json(content, i):
                     bt = datetime.combine(base_day, datetime.strptime(t, "%H:%M").time())
                     et = bt + timedelta(minutes=30)
                     p = etree.Element("programme")
-                    p.set("start", bt.strftime("%Y%m%d%H%M%S 0"))
-                    p.set("stop", et.strftime("%Y%m%d%H%M%S 0"))
+                    # 关键修复：去掉空格和0，改为标准格式
+                    p.set("start", bt.strftime("%Y%m%d%H%M%S"))
+                    p.set("stop", et.strftime("%Y%m%d%H%M%S"))
                     p.set("channel", un)
                     etree.SubElement(p, "title").text = title
                     progs.append(p)
@@ -186,7 +172,7 @@ def parse_json(content, i):
     logging.info(f"【第{i}条】JSON频道:{len(chs)} 节目:{len(progs)}")
     return chs, progs
 
-# ==================== 强力去重 解决文件超大 ====================
+# ==================== 强力去重（解决文件超大） ====================
 def dedupe_programs(progs):
     seen = set()
     unique = []
@@ -199,7 +185,7 @@ def dedupe_programs(progs):
         if key not in seen:
             seen.add(key)
             unique.append(p)
-    logging.info(f"节目去重瘦身：{len(progs)} → {len(unique)}")
+    logging.info(f"节目去重：{len(progs)} → {len(unique)}")
     return unique
 
 def read_config():
@@ -212,9 +198,10 @@ def read_config():
     return lines
 
 def main():
-    # 清空旧垃圾
-    if os.path.exists(os.path.join(OUTPUT_DIR, OUTPUT_FILE)):
-        os.remove(os.path.join(OUTPUT_DIR, OUTPUT_FILE))
+    # 清空旧文件
+    output_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
+    if os.path.exists(output_path):
+        os.remove(output_path)
 
     urls = read_config()
     all_ch = {}
@@ -247,7 +234,7 @@ def main():
 
     logging.info("==========汇总==========")
     logging.info(f"总频道: {len(all_ch)}")
-    logging.info(f"最终有效节目: {len(all_prog)}")
+    logging.info(f"最终节目数: {len(all_prog)}")
     
     root = etree.Element("tv")
     for ch in all_ch.values():
@@ -256,10 +243,9 @@ def main():
         root.append(p)
         
     xml = etree.tostring(root, encoding="utf-8", xml_declaration=True)
-    out = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
-    with gzip.open(out, "wb") as f:
+    with gzip.open(output_path, "wb") as f:
         f.write(xml)
-    logging.info(f"✅ 瘦身版EPG生成完成: {out}")
+    logging.info(f"✅ 生成完成: {output_path}")
 
 if __name__ == "__main__":
     main()
