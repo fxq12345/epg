@@ -6,323 +6,374 @@ import requests
 from lxml import etree
 from datetime import datetime, timedelta
 import io
+import time
 
-# 配置
+# ========== 基础全局配置 【固定前后7天】 ==========
 LOG_FILE = "epg_update.log"
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
 OUTPUT_FILE = "epg.gz"
-DAYS_BEFORE = 7
-DAYS_AFTER = 7
+DAYS_BEFORE = 7    # 过去7天
+DAYS_AFTER = 7     # 未来7天
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 日志
+# ========== 超详细日志配置 ==========
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format="%(asctime)s | %(levelname)-8s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),
         logging.StreamHandler()
     ]
 )
+logger = logging.getLogger(__name__)
 
-# 繁转简映射
+# ========== 繁转简统一规则 ==========
 F2S = {"臺":"台","衛":"卫","視":"视","體":"体","綜":"综","藝":"艺","頻":"频","廣":"广","東":"东"}
 def f2s(text):
-    if not text: return text
-    for a,b in F2S.items():
+    if not text: return ""
+    for a, b in F2S.items():
         text = text.replace(a, b)
     return text.strip()
 
-# 频道标准化（补全所有你截图里的频道）
+# ========== 全量频道标准化映射（央视+山东+全国卫视） ==========
 def unified_name(raw_name):
     if not raw_name: return raw_name
     n = f2s(raw_name).strip()
     lower_n = n.lower()
 
-    # CCTV系列
+    # CCTV全系列
     if "cctv1" in lower_n or "央视1" in lower_n: return "CCTV1"
     if "cctv2" in lower_n or "央视2" in lower_n: return "CCTV2"
     if "cctv3" in lower_n or "央视3" in lower_n: return "CCTV3"
     if "cctv4" in lower_n or "央视4" in lower_n: return "CCTV4"
     if "cctv5" in lower_n or "央视5" in lower_n: return "CCTV5"
-    if "cctv5+" in lower_n or "cctv5plus" in lower_n: return "CCTV5+"
+    if "cctv5+" in lower_n: return "CCTV5+"
     if "cctv6" in lower_n or "央视6" in lower_n: return "CCTV6"
     if "cctv7" in lower_n or "央视7" in lower_n: return "CCTV7"
     if "cctv8" in lower_n or "央视8" in lower_n: return "CCTV8"
+    if "cctv9" in lower_n: return "CCTV9"
+    if "cctv10" in lower_n: return "CCTV10"
+    if "cctv11" in lower_n: return "CCTV11"
+    if "cctv12" in lower_n: return "CCTV12"
+    if "cctv13" in lower_n: return "CCTV13"
+    if "cctv14" in lower_n: return "CCTV14"
+    if "cctv15" in lower_n: return "CCTV15"
+    if "cctv17" in lower_n: return "CCTV17"
     if "cctv4k" in lower_n: return "CCTV4K"
 
-    # 山东系列频道
-    if "山东" in n and "新闻" in n: return "山东新闻"
-    if "山东" in n and "文旅" in n: return "山东文旅"
-    if "山东" in n and "生活" in n: return "山东生活"
-    if "山东" in n and "综艺" in n: return "山东综艺"
-    if "山东" in n and "体育" in n and "休闲" not in n: return "山东体育"
-    if "山东" in n and "农科" in n: return "山东农科"
-    if "山东" in n and "少儿" in n: return "山东少儿"
-    if "山东" in n and "教育卫视" in n: return "山东教育卫视"
-    if "齐鲁" in n: return "山东齐鲁"
+    # 山东全系列频道
     if "山东卫视" in n: return "山东卫视"
+    if "山东新闻" in n: return "山东新闻"
+    if "山东齐鲁" in n or "齐鲁频道" in n: return "山东齐鲁"
+    if "山东体育" in n: return "山东体育"
+    if "山东文旅" in n: return "山东文旅"
+    if "山东生活" in n: return "山东生活"
+    if "山东综艺" in n: return "山东综艺"
+    if "山东农科" in n: return "山东农科"
+    if "山东少儿" in n: return "山东少儿"
+    if "山东教育" in n: return "山东教育卫视"
 
-    # 全国卫视
+    # 全国主流卫视
+    if "北京卫视" in n: return "北京卫视"
     if "浙江卫视" in n: return "浙江卫视"
+    if "江苏卫视" in n: return "江苏卫视"
+    if "东方卫视" in n or "上海卫视" in n: return "东方卫视"
+    if "湖南卫视" in n: return "湖南卫视"
+    if "安徽卫视" in n: return "安徽卫视"
+    if "广东卫视" in n: return "广东卫视"
+    if "深圳卫视" in n: return "深圳卫视"
     if "宁夏卫视" in n: return "宁夏卫视"
     if "新疆卫视" in n: return "新疆卫视"
-    if "甘肃卫视" in n: return "甘肃卫视"
-    if "青海卫视" in n: return "青海卫视"
-    if "西藏卫视" in n: return "西藏卫视"
-    if "三沙卫视" in n: return "三沙卫视"
-    if "兵团卫视" in n: return "兵团卫视"
-    if "农林卫视" in n: return "农林卫视"
-    if "广西卫视" in n: return "广西卫视"
-    if "吉林卫视" in n: return "吉林卫视"
-    if "云南卫视" in n: return "云南卫视"
-    if "陕西卫视" in n: return "陕西卫视"
-    if "延边卫视" in n: return "延边卫视"
-    if "内蒙古卫视" in n: return "内蒙古卫视"
-
-    # 特色频道（SiTV/NewTV）
-    if "都市剧场" in n: return "都市剧场"
-    if "欢笑剧场" in n: return "欢笑剧场"
-    if "金色学堂" in n: return "金色学堂"
-    if "劲爆体育" in n: return "劲爆体育"
-    if "乐游" in n: return "乐游"
-    if "魅力足球" in n: return "魅力足球"
-    if "七彩戏剧" in n: return "七彩戏剧"
-    if "生活时尚" in n: return "生活时尚"
-    if "游戏风云" in n: return "游戏风云"
-    if "中国交通" in n: return "中国交通"
 
     return n
 
-# 北京时间基准
-now = datetime.now()
-today = datetime(now.year, now.month, now.day)
-start_day = today - timedelta(days=DAYS_BEFORE)
-end_day = today + timedelta(days=DAYS_AFTER)
+# ========== 核心时间校验 【根治1970/0001】 ==========
+def get_time_range_limit():
+    now = datetime.now()
+    min_time = now - timedelta(days=DAYS_BEFORE + 2)
+    max_time = now + timedelta(days=DAYS_AFTER + 2)
+    return min_time, max_time
 
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"}
+MIN_VALID_TIME, MAX_VALID_TIME = get_time_range_limit()
 
-def fetch(url, i):
+def is_datetime_valid(dt):
+    # 过滤异常年份+超出前后15天范围
+    if dt.year < 2024 or dt.year > 2030:
+        return False
+    if not (MIN_VALID_TIME <= dt <= MAX_VALID_TIME):
+        return False
+    return True
+
+def safe_parse_time(time_str):
+    """安全解析XML标准时间，失败直接返回None"""
     try:
-        r = requests.get(url, headers=HEADERS, timeout=20)
-        if r.status_code != 200:
-            logging.warning(f"[{i}] 请求失败，状态码：{r.status_code}")
-            return None, None, False
-        c = r.content
-        fmt = "xml" if (c.startswith(b'\x1f\x8b') or b'<tv' in c[:200]) else "json"
-        return c, fmt, True
+        dt = datetime.strptime(time_str[:14], "%Y%m%d%H%M%S")
+        if is_datetime_valid(dt):
+            return dt
+        return None
     except Exception as e:
-        logging.error(f"[{i}] 请求异常：{str(e)}")
-        return None, None, False
+        logger.debug(f"时间解析失败: {time_str} | 原因: {str(e)[:30]}")
+        return None
 
-# XML解析（酷9兼容版：强制标准时间戳，过滤无效日期）
-def parse_xml(content, i):
+# ========== 网络请求模块 ==========
+HEADERS = {
+    "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+}
+
+def fetch_source(url):
+    logger.info(f"🔍 开始抓取源: {url}")
+    start_t = time.time()
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=25)
+        cost = round(time.time() - start_t, 2)
+        if resp.status_code != 200:
+            logger.error(f"❌ 源请求失败: 状态码={resp.status_code} 耗时={cost}s")
+            return None, None
+        content = resp.content
+        # 判断格式
+        if content.startswith(b'\x1f\x8b') or b"<tv" in content[:300]:
+            fmt = "xml"
+        else:
+            fmt = "json"
+        logger.info(f"✅ 源请求成功: 格式={fmt} 耗时={cost}s")
+        return content, fmt
+    except Exception as e:
+        cost = round(time.time() - start_t, 2)
+        logger.error(f"❌ 源抓取异常: {str(e)[:40]} 耗时={cost}s")
+        return None, None
+
+# ========== XML解析模块 ==========
+def parse_xml_content(content):
+    # 解压gzip
     if content.startswith(b'\x1f\x8b'):
         try:
             with gzip.GzipFile(fileobj=io.BytesIO(content)) as f:
                 content = f.read()
         except:
-            pass
+            logger.warning("⚠️ XML解压失败，尝试原始内容解析")
+
     try:
         root = etree.fromstring(content)
     except Exception as e:
-        logging.error(f"[{i}] XML解析失败：{str(e)}")
+        logger.error(f"❌ XML整体解析失败: {str(e)[:40]}")
         return {}, []
-    chs = {}
-    progs = []
-    # 处理频道
-    for ch in root.xpath("//channel"):
-        raw = ch.findtext("display-name", "").strip()
-        if not raw: continue
-        un = unified_name(raw)
-        ch.set("id", un)
-        if ch.find("display-name") is not None:
-            ch.find("display-name").text = un
-        chs[un] = ch
-    # 处理节目单（直接读取源里的日期，只保留前后7天的有效数据）
-    for p in root.xpath("//programme"):
-        rawid = p.get("channel", "").strip()
-        if not rawid: continue
-        un = unified_name(rawid)
-        t = p.find("title")
-        title = f2s(t.text) if t is not None else ""
-        st_str = p.get("start", "")
-        if len(st_str) < 14: continue
-        try:
-            # 直接解析源里的完整时间
-            st_dt = datetime.strptime(st_str[:14], "%Y%m%d%H%M%S")
-            st_dt = st_dt.replace(tzinfo=None)
-            # 只保留前后7天的节目，过滤无效日期
-            if not (start_day <= st_dt <= end_day):
-                continue
-            stop_str = p.get("stop", "")
-            if len(stop_str) >= 14:
-                et_dt = datetime.strptime(stop_str[:14], "%Y%m%d%H%M%S")
-                et_dt = et_dt.replace(tzinfo=None)
-            else:
-                et_dt = st_dt + timedelta(minutes=30)
-            # 强制生成酷9能识别的时间格式
-            p_new = etree.Element("programme")
-            p_new.set("start", st_dt.strftime("%Y%m%d%H%M%S +0800"))
-            p_new.set("stop", et_dt.strftime("%Y%m%d%H%M%S +0800"))
-            p_new.set("channel", un)
-            etree.SubElement(p_new, "title").text = title
-            progs.append(p_new)
-        except Exception as e:
-            logging.debug(f"节目解析失败：{st_str} - {str(e)}")
-            continue
-    return chs, progs
 
-# JSON解析（酷9兼容版：修复无日期源，只生成有效日期节目）
-def parse_json(content, i):
+    channel_dict = {}
+    prog_list = []
+
+    # 解析频道
+    for ch_node in root.xpath("//channel"):
+        raw_name = ch_node.findtext("display-name", "").strip()
+        new_name = unified_name(raw_name)
+        ch_node.set("id", new_name)
+        disp_node = ch_node.find("display-name")
+        if disp_node is not None:
+            disp_node.text = new_name
+        channel_dict[new_name] = ch_node
+    logger.info(f"📺 XML解析获取频道数量: {len(channel_dict)}")
+
+    # 解析节目（非法时间直接整条丢弃，绝不补时间）
+    valid_count = 0
+    invalid_count = 0
+    for prog_node in root.xpath("//programme"):
+        ch_raw_id = prog_node.get("channel", "").strip()
+        ch_new_id = unified_name(ch_raw_id)
+
+        start_str = prog_node.get("start", "")
+        stop_str = prog_node.get("stop", "")
+        title_text = f2s(prog_node.findtext("title", ""))
+
+        start_dt = safe_parse_time(start_str)
+        stop_dt = safe_parse_time(stop_str)
+
+        # 任意时间无效 → 丢弃
+        if not start_dt or not stop_dt:
+            invalid_count += 1
+            continue
+
+        # 重建标准节目节点
+        new_prog = etree.Element("programme")
+        new_prog.set("start", start_dt.strftime("%Y%m%d%H%M%S +0800"))
+        new_prog.set("stop", stop_dt.strftime("%Y%m%d%H%M%S +0800"))
+        new_prog.set("channel", ch_new_id)
+        etree.SubElement(new_prog, "title").text = title_text
+        prog_list.append(new_prog)
+        valid_count += 1
+
+    logger.info(f"📅 XML有效节目: {valid_count} 无效丢弃: {invalid_count}")
+    return channel_dict, prog_list
+
+# ========== JSON解析模块（只取带完整date的合法源） ==========
+def parse_json_content(content):
     try:
         data = json.loads(content)
     except Exception as e:
-        logging.error(f"[{i}] JSON解析失败：{str(e)}")
+        logger.error(f"❌ JSON解析失败: {str(e)[:40]}")
         return {}, []
-    chs = {}
-    progs = []
-    # 适配两种常见JSON格式
-    if isinstance(data, list):
-        for item in data:
-            # 格式1：带date字段的标准格式
-            if "channel_name" in item and "date" in item and "epg_data" in item:
-                name = item.get("channel_name", "")
-                date_str = item.get("date", "")
-                plist = item.get("epg_data", [])
-                if not name or not date_str or not plist: continue
-                un = unified_name(name)
-                if un not in chs:
-                    ch = etree.Element("channel", id=un)
-                    etree.SubElement(ch, "display-name").text = un
-                    chs[un] = ch
-                try:
-                    base_day = datetime.strptime(date_str, "%Y-%m-%d")
-                    if not (start_day <= base_day <= end_day):
-                        continue
-                except:
+
+    if not isinstance(data, list):
+        logger.warning("⚠️ JSON格式非列表，跳过")
+        return {}, []
+
+    channel_dict = {}
+    prog_list = []
+    total_valid = 0
+
+    for item in data:
+        ch_name = item.get("channel_name") or item.get("name")
+        date_str = item.get("date")
+        epg_data = item.get("epg_data") or item.get("list")
+
+        if not ch_name or not date_str or not epg_data:
+            continue
+
+        clean_ch = unified_name(ch_name)
+        # 注册频道
+        if clean_ch not in channel_dict:
+            ch_node = etree.Element("channel", id=clean_ch)
+            etree.SubElement(ch_node, "display-name").text = clean_ch
+            channel_dict[clean_ch] = ch_node
+
+        # 解析日期
+        try:
+            base_date = datetime.strptime(date_str, "%Y-%m-%d")
+            if not is_datetime_valid(base_date):
+                continue
+        except:
+            continue
+
+        # 逐条节目
+        for p in epg_data:
+            s_time = p.get("start")
+            e_time = p.get("end")
+            title = f2s(p.get("title", ""))
+            if not s_time or not e_time:
+                continue
+            try:
+                s_dt = datetime.combine(base_date, datetime.strptime(s_time, "%H:%M").time())
+                e_dt = datetime.combine(base_date, datetime.strptime(e_time, "%H:%M").time())
+                if not is_datetime_valid(s_dt) or not is_datetime_valid(e_dt):
                     continue
-                for prog in plist:
-                    start_str = prog.get("start", "")
-                    end_str = prog.get("end", "")
-                    title = f2s(prog.get("title", ""))
-                    if not start_str or not end_str: continue
-                    try:
-                        st_time = datetime.strptime(start_str, "%H:%M").time()
-                        et_time = datetime.strptime(end_str, "%H:%M").time()
-                        st_dt = datetime.combine(base_day, st_time)
-                        et_dt = datetime.combine(base_day, et_time)
-                        p = etree.Element("programme")
-                        p.set("start", st_dt.strftime("%Y%m%d%H%M%S +0800"))
-                        p.set("stop", et_dt.strftime("%Y%m%d%H%M%S +0800"))
-                        p.set("channel", un)
-                        etree.SubElement(p, "title").text = title
-                        progs.append(p)
-                    except Exception as e:
-                        logging.debug(f"节目解析失败：{start_str} - {str(e)}")
-                        continue
-            # 格式2：无date字段，只有时间的源，按前后7天扩展
-            elif "name" in item and "list" in item:
-                name = item.get("name", "")
-                plist = item.get("list", [])
-                if not name or not plist: continue
-                un = unified_name(name)
-                if un not in chs:
-                    ch = etree.Element("channel", id=un)
-                    etree.SubElement(ch, "display-name").text = un
-                    chs[un] = ch
-                # 只扩展前后7天的节目
-                for base_day in [today + timedelta(days=d) for d in range(-DAYS_BEFORE, DAYS_AFTER+1)]:
-                    for prog in plist:
-                        start_str = prog.get("time", "") or prog.get("start", "")
-                        end_str = prog.get("end", "") or ""
-                        title = f2s(prog.get("program", "") or prog.get("title", ""))
-                        if not start_str: continue
-                        try:
-                            st_time = datetime.strptime(start_str, "%H:%M").time()
-                            st_dt = datetime.combine(base_day, st_time)
-                            if end_str:
-                                et_time = datetime.strptime(end_str, "%H:%M").time()
-                                et_dt = datetime.combine(base_day, et_time)
-                            else:
-                                et_dt = st_dt + timedelta(minutes=30)
-                            p = etree.Element("programme")
-                            p.set("start", st_dt.strftime("%Y%m%d%H%M%S +0800"))
-                            p.set("stop", et_dt.strftime("%Y%m%d%H%M%S +0800"))
-                            p.set("channel", un)
-                            etree.SubElement(p, "title").text = title
-                            progs.append(p)
-                        except Exception as e:
-                            logging.debug(f"节目解析失败：{start_str} - {str(e)}")
-                            continue
-    return chs, progs
+                new_p = etree.Element("programme")
+                new_p.set("start", s_dt.strftime("%Y%m%d%H%M%S +0800"))
+                new_p.set("stop", e_dt.strftime("%Y%m%d%H%M%S +0800"))
+                new_p.set("channel", clean_ch)
+                etree.SubElement(new_p, "title").text = title
+                prog_list.append(new_p)
+                total_valid += 1
+            except:
+                continue
 
-# 强力去重（按频道+开始时间+结束时间去重，解决重叠）
-def dedupe(progs):
-    seen = set()
-    u = []
-    for p in progs:
-        key = (p.get("channel"), p.get("start"), p.get("stop"))
-        if key not in seen:
-            seen.add(key)
-            u.append(p)
-    return u
+    logger.info(f"📋 JSON解析频道: {len(channel_dict)} 有效节目: {total_valid}")
+    return channel_dict, prog_list
 
-def read_config():
+# ========== 节目去重 ==========
+def deduplicate_programs(prog_elements):
+    seen_key = set()
+    result = []
+    for p in prog_elements:
+        key = (p.get("channel"), p.get("start"))
+        if key not in seen_key:
+            seen_key.add(key)
+            result.append(p)
+    logger.info(f"🧹 去重前: {len(prog_elements)} 条 去重后: {len(result)} 条")
+    return result
+
+# ========== 读取配置源列表 ==========
+def read_source_list():
     if not os.path.exists(CONFIG_FILE):
-        logging.warning("未找到config.txt")
+        logger.warning(f"⚠️ 未找到配置文件: {CONFIG_FILE}")
         return []
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-        return [l.strip() for l in f if l.strip() and not l.startswith("#")]
+        lines = []
+        for line in f.readlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                lines.append(line)
+    logger.info(f"📃 读取到有效源数量: {len(lines)}")
+    return lines
 
+# ========== 主程序 ==========
 def main():
-    out_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
-    if os.path.exists(out_path):
-        os.remove(out_path)
-    urls = read_config()
-    if not urls:
-        logging.error("config.txt为空，退出")
+    logger.info("==============================================")
+    logger.info("🚀 EPG生成任务开始 周期:前7天+后7天")
+    logger.info("==============================================")
+
+    out_gz_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
+    # 清理旧文件
+    if os.path.exists(out_gz_path):
+        os.remove(out_gz_path)
+        logger.info(f"🗑️ 清理旧文件: {OUTPUT_FILE}")
+
+    source_urls = read_source_list()
+    if not source_urls:
+        logger.error("❌ 无任何可用源，任务终止")
         return
-    all_ch = {}
-    all_prog = []
-    for i, url in enumerate(urls, 1):
-        c, fmt, ok = fetch(url, i)
-        if not ok:
+
+    global_channels = {}
+    global_programs = []
+    success_src = 0
+    fail_src = 0
+
+    # 循环逐个抓取每一条源
+    for idx, url in enumerate(source_urls, 1):
+        logger.info(f"---------------- 第{idx}条源处理中 ----------------")
+        content, fmt = fetch_source(url)
+        if not content:
+            fail_src += 1
             continue
+
+        success_src += 1
         if fmt == "xml":
-            chs, progs = parse_xml(c, i)
+            chs, progs = parse_xml_content(content)
         else:
-            chs, progs = parse_json(c, i)
-        for cid, ch in chs.items():
-            if cid not in all_ch:
-                all_ch[cid] = ch
-        all_prog.extend(progs)
-    # 兜底频道（所有你截图里的频道）
-    required = [
-        "CCTV1", "CCTV2", "CCTV3", "CCTV4", "CCTV5", "CCTV5+", "CCTV6", "CCTV7", "CCTV8",
-        "山东新闻", "山东文旅", "山东生活", "山东综艺", "山东体育", "山东农科", "山东少儿", "山东教育卫视", "山东齐鲁", "山东卫视",
-        "浙江卫视", "宁夏卫视", "新疆卫视", "甘肃卫视", "青海卫视", "西藏卫视", "三沙卫视", "兵团卫视", "农林卫视",
-        "广西卫视", "吉林卫视", "云南卫视", "陕西卫视", "延边卫视", "内蒙古卫视",
-        "都市剧场", "欢笑剧场", "金色学堂", "劲爆体育", "乐游", "魅力足球", "七彩戏剧", "生活时尚", "游戏风云", "中国交通"
-    ]
-    for name in required:
-        if name not in all_ch:
-            ch = etree.Element("channel", id=name)
-            etree.SubElement(ch, "display-name").text = name
-            all_ch[name] = ch
+            chs, progs = parse_json_content(content)
+
+        # 合并全局
+        for cid, chnode in chs.items():
+            if cid not in global_channels:
+                global_channels[cid] = chnode
+        global_programs.extend(progs)
+
+    # 汇总统计
+    logger.info("==============================================")
+    logger.info(f"📊 源汇总统计 | 成功:{success_src} 失败:{fail_src} 总计:{len(source_urls)}")
+
     # 去重
-    all_prog = dedupe(all_prog)
-    # 生成XML（强制UTF-8声明，无多余命名空间，酷9完美兼容）
+    global_programs = deduplicate_programs(global_programs)
+
+    # 必备频道兜底（防止空频道无节目）
+    need_default_channels = [
+        "CCTV1","CCTV2","CCTV3","CCTV4","CCTV5","CCTV5+","CCTV6","CCTV7","CCTV8",
+        "山东卫视","山东新闻","山东齐鲁","山东体育","北京卫视","浙江卫视"
+    ]
+    for ch_name in need_default_channels:
+        if ch_name not in global_channels:
+            new_ch = etree.Element("channel", id=ch_name)
+            etree.SubElement(new_ch, "display-name").text = ch_name
+            global_channels[ch_name] = new_ch
+    logger.info(f"🛡️ 兜底补充频道完成，当前总频道数: {len(global_channels)}")
+
+    # 生成最终标准XML
     root = etree.Element("tv")
-    for ch in all_ch.values():
+    for ch in global_channels.values():
         root.append(ch)
-    for p in all_prog:
+    for p in global_programs:
         root.append(p)
-    xml = etree.tostring(root, encoding="utf-8", xml_declaration=True, pretty_print=True)
-    with gzip.open(out_path, "wb") as f:
-        f.write(xml)
-    logging.info(f"✅ 完成：频道数{len(all_ch)} 节目数{len(all_prog)}")
+
+    # 压缩保存
+    xml_bytes = etree.tostring(root, encoding="utf-8", xml_declaration=True, pretty_print=True)
+    with gzip.open(out_gz_path, "wb") as f:
+        f.write(xml_bytes)
+
+    logger.info("==============================================")
+    logger.info(f"🎉 任务全部完成！")
+    logger.info(f"📺 最终频道总数: {len(global_channels)}")
+    logger.info(f"📅 最终有效节目数: {len(global_programs)}")
+    logger.info(f"💾 输出文件: {out_gz_path}")
+    logger.info("==============================================\n")
 
 if __name__ == "__main__":
     main()
