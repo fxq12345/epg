@@ -1,14 +1,12 @@
 name: EPG 稳定更新
-
 on:
   schedule:
     - cron: '0 16 * * *'
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: 设为北京时间
         run: |
