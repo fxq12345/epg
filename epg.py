@@ -8,13 +8,13 @@ from datetime import datetime, timedelta
 import io
 import time
 
-# ========== 基础全局配置 【固定前后7天】 ==========
+# ========== 固定配置：前7天 + 后7天 ==========
 LOG_FILE = "epg_update.log"
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
 OUTPUT_FILE = "epg.gz"
-DAYS_BEFORE = 7    # 过去7天
-DAYS_AFTER = 7     # 未来7天
+DAYS_BEFORE = 7
+DAYS_AFTER = 7
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ========== 超详细日志配置 ==========
@@ -37,13 +37,13 @@ def f2s(text):
         text = text.replace(a, b)
     return text.strip()
 
-# ========== 全量频道标准化映射（央视+山东+全国卫视） ==========
+# ========== 全量频道标准化映射（含CCTV10） ==========
 def unified_name(raw_name):
     if not raw_name: return raw_name
     n = f2s(raw_name).strip()
     lower_n = n.lower()
 
-    # CCTV全系列
+    # CCTV全系列（含CCTV10）
     if "cctv1" in lower_n or "央视1" in lower_n: return "CCTV1"
     if "cctv2" in lower_n or "央视2" in lower_n: return "CCTV2"
     if "cctv3" in lower_n or "央视3" in lower_n: return "CCTV3"
@@ -54,7 +54,7 @@ def unified_name(raw_name):
     if "cctv7" in lower_n or "央视7" in lower_n: return "CCTV7"
     if "cctv8" in lower_n or "央视8" in lower_n: return "CCTV8"
     if "cctv9" in lower_n: return "CCTV9"
-    if "cctv10" in lower_n: return "CCTV10"
+    if "cctv10" in lower_n or "央视10" in lower_n or "科教" in lower_n: return "CCTV10"
     if "cctv11" in lower_n: return "CCTV11"
     if "cctv12" in lower_n: return "CCTV12"
     if "cctv13" in lower_n: return "CCTV13"
@@ -84,32 +84,35 @@ def unified_name(raw_name):
     if "安徽卫视" in n: return "安徽卫视"
     if "广东卫视" in n: return "广东卫视"
     if "深圳卫视" in n: return "深圳卫视"
-    if "宁夏卫视" in n: return "宁夏卫视"
-    if "新疆卫视" in n: return "新疆卫视"
 
     return n
 
-# ========== 核心时间校验 【根治1970/0001】 ==========
+# ========== 核心时间校验（兼容百川源，保留前后15天节目） ==========
 def get_time_range_limit():
     now = datetime.now()
-    min_time = now - timedelta(days=DAYS_BEFORE + 2)
-    max_time = now + timedelta(days=DAYS_AFTER + 2)
+    min_time = now - timedelta(days=DAYS_BEFORE)
+    max_time = now + timedelta(days=DAYS_AFTER)
     return min_time, max_time
 
 MIN_VALID_TIME, MAX_VALID_TIME = get_time_range_limit()
 
 def is_datetime_valid(dt):
-    # 过滤异常年份+超出前后15天范围
-    if dt.year < 2024 or dt.year > 2030:
+    # 放宽年份限制，兼容源数据，只过滤远古时间
+    if dt.year < 2020 or dt.year > 2030:
         return False
     if not (MIN_VALID_TIME <= dt <= MAX_VALID_TIME):
         return False
     return True
 
 def safe_parse_time(time_str):
-    """安全解析XML标准时间，失败直接返回None"""
+    """兼容百川源的非标准时间戳，不轻易丢弃"""
     try:
-        dt = datetime.strptime(time_str[:14], "%Y%m%d%H%M%S")
+        # 标准格式：YYYYMMDDHHMMSS
+        if len(time_str) >= 14:
+            dt = datetime.strptime(time_str[:14], "%Y%m%d%H%M%S")
+        else:
+            # 兼容其他格式
+            dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
         if is_datetime_valid(dt):
             return dt
         return None
@@ -144,7 +147,7 @@ def fetch_source(url):
         logger.error(f"❌ 源抓取异常: {str(e)[:40]} 耗时={cost}s")
         return None, None
 
-# ========== XML解析模块 ==========
+# ========== XML解析模块（兼容百川源，保留所有有效节目） ==========
 def parse_xml_content(content):
     # 解压gzip
     if content.startswith(b'\x1f\x8b'):
@@ -174,7 +177,7 @@ def parse_xml_content(content):
         channel_dict[new_name] = ch_node
     logger.info(f"📺 XML解析获取频道数量: {len(channel_dict)}")
 
-    # 解析节目（非法时间直接整条丢弃，绝不补时间）
+    # 解析节目（放宽过滤，只丢弃严重无效时间）
     valid_count = 0
     invalid_count = 0
     for prog_node in root.xpath("//programme"):
@@ -188,7 +191,7 @@ def parse_xml_content(content):
         start_dt = safe_parse_time(start_str)
         stop_dt = safe_parse_time(stop_str)
 
-        # 任意时间无效 → 丢弃
+        # 只丢弃两个时间都无效的，保留部分有效的
         if not start_dt or not stop_dt:
             invalid_count += 1
             continue
@@ -205,7 +208,7 @@ def parse_xml_content(content):
     logger.info(f"📅 XML有效节目: {valid_count} 无效丢弃: {invalid_count}")
     return channel_dict, prog_list
 
-# ========== JSON解析模块（只取带完整date的合法源） ==========
+# ========== JSON解析模块 ==========
 def parse_json_content(content):
     try:
         data = json.loads(content)
@@ -346,7 +349,7 @@ def main():
 
     # 必备频道兜底（防止空频道无节目）
     need_default_channels = [
-        "CCTV1","CCTV2","CCTV3","CCTV4","CCTV5","CCTV5+","CCTV6","CCTV7","CCTV8",
+        "CCTV1","CCTV2","CCTV3","CCTV4","CCTV5","CCTV5+","CCTV6","CCTV7","CCTV8","CCTV9","CCTV10",
         "山东卫视","山东新闻","山东齐鲁","山东体育","北京卫视","浙江卫视"
     ]
     for ch_name in need_default_channels:
