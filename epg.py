@@ -12,13 +12,13 @@ from urllib3.util.retry import Retry
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ========== 固定配置：前7天 + 后7天 ==========
+# ========== 固定配置：前10天 + 后10天 ==========
 LOG_FILE = "epg_update.log"
 CONFIG_FILE = "config.txt"
 OUTPUT_DIR = "output"
 OUTPUT_FILE = "epg.gz"
-DAYS_BEFORE = 7
-DAYS_AFTER = 7
+DAYS_BEFORE = 10
+DAYS_AFTER = 10
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ========== 超详细日志配置 ==========
@@ -41,79 +41,79 @@ def f2s(text):
         text = text.replace(a, b)
     return text.strip()
 
-# ========== 全量频道标准化映射（强制和你播放器里的名称一致） ==========
+# ========== 全量频道标准化映射（强制和你播放器里的名称完全一致） ==========
 def unified_name(raw_name):
     if not raw_name: return raw_name
     n = f2s(raw_name).strip()
     lower_n = n.lower()
 
-    # --- CCTV 系列全修复 ---
-    if "CCTV-1" in n or "CCTV1" in n or "综合" in n:
+    # --- CCTV 系列全修复（强制兜底，不管源里怎么写） ---
+    if any(x in n for x in ["CCTV-1", "CCTV1", "综合"]):
         return "CCTV1"
-    if "CCTV-2" in n or "CCTV2" in n or "财经" in n:
+    if any(x in n for x in ["CCTV-2", "CCTV2", "财经"]):
         return "CCTV2"
-    if "CCTV-3" in n or "CCTV3" in n or "综艺" in n:
+    if any(x in n for x in ["CCTV-3", "CCTV3", "综艺"]):
         return "CCTV3"
-    if "CCTV-4" in n or "CCTV4" in n or "国际" in n:
+    if any(x in n for x in ["CCTV-4", "CCTV4", "国际"]):
         return "CCTV4"
-    if "CCTV-5" in n or "CCTV5" in n or "体育" in n:
-        if "+" in n or "PLUS" in n or "5+" in n: 
-            return "CCTV5+"
+    if any(x in n for x in ["CCTV-5", "CCTV5", "体育"]) and not any(x in n for x in ["+", "PLUS", "5+"]):
         return "CCTV5"
-    if "CCTV-6" in n or "CCTV6" in n or "电影" in n:
+    if any(x in n for x in ["CCTV-5+", "CCTV5+", "5+"]):
+        return "CCTV5+"
+    if any(x in n for x in ["CCTV-6", "CCTV6", "电影"]):
         return "CCTV6"
-    if "CCTV-7" in n or "CCTV7" in n or "国防" in n or "军事" in n:
+    if any(x in n for x in ["CCTV-7", "CCTV7", "国防", "军事"]):
         return "CCTV7"
-    if "CCTV-8" in n or "CCTV8" in n or "电视剧" in n:
+    if any(x in n for x in ["CCTV-8", "CCTV8", "电视剧"]):
         return "CCTV8"
-    if "CCTV-9" in n or "CCTV9" in n or "纪录" in n:
+    if any(x in n for x in ["CCTV-9", "CCTV9", "纪录"]):
         return "CCTV9"
-    if "CCTV-10" in n or "CCTV10" in n or "科教" in n:
+    if any(x in n for x in ["CCTV-10", "CCTV10", "科教"]):
         return "CCTV10"
-    if "CCTV-11" in n or "CCTV11" in n or "戏曲" in n:
+    if any(x in n for x in ["CCTV-11", "CCTV11", "戏曲"]):
         return "CCTV11"
-    if "CCTV-12" in n or "CCTV12" in n or "社会与法" in n:
+    if any(x in n for x in ["CCTV-12", "CCTV12", "社会与法"]):
         return "CCTV12"
-    if "CCTV-13" in n or "CCTV13" in n or "新闻" in n:
+    if any(x in n for x in ["CCTV-13", "CCTV13", "新闻"]):
         return "CCTV13"
-    if "CCTV-14" in n or "CCTV14" in n or "少儿" in n:
+    if any(x in n for x in ["CCTV-14", "CCTV14", "少儿"]):
         return "CCTV14"
-    if "CCTV-15" in n or "CCTV15" in n or "音乐" in n:
+    if any(x in n for x in ["CCTV-15", "CCTV15", "音乐"]):
         return "CCTV15"
-    if "CCTV-17" in n or "CCTV17" in n or "农业农村" in n or "农业" in n:
+    if any(x in n for x in ["CCTV-17", "CCTV17", "农业农村", "农业"]):
         return "CCTV17"
-    if "CCTV-4K" in n or "CCTV4K" in n or "4K" in n:
+    if any(x in n for x in ["CCTV-4K", "CCTV4K", "4K"]):
         return "CCTV4K"
     
 
     # 山东全系列频道（强制兜底匹配）
-    if "山东卫视" in n: 
+    if any(x in n for x in ["山东卫视"]): 
         return "山东卫视"
-    if "山东新闻" in n or "新闻频道" in n: 
+    if any(x in n for x in ["山东新闻", "新闻频道"]): 
         return "山东新闻"
-    if "山东齐鲁" in n or "齐鲁频道" in n: 
+    if any(x in n for x in ["山东齐鲁", "齐鲁频道"]): 
         return "山东齐鲁"
-    if "山东体育" in n or "体育休闲" in n: 
+    if any(x in n for x in ["山东体育", "体育休闲"]): 
         return "山东体育"
-    if "山东文旅" in n or "文旅频道" in n: 
+    if any(x in n for x in ["山东文旅", "文旅频道"]): 
         return "山东文旅"
-    if "山东生活" in n or "生活频道" in n: 
+    if any(x in n for x in ["山东生活", "生活频道"]): 
         return "山东生活"
-    if "山东综艺" in n or "综艺频道" in n: 
+    if any(x in n for x in ["山东综艺", "综艺频道"]): 
         return "山东综艺"
-    if "山东农科" in n or "农科频道" in n: 
+    if any(x in n for x in ["山东农科", "农科频道"]): 
         return "山东农科"
-    if "山东少儿" in n or "少儿频道" in n: 
+    if any(x in n for x in ["山东少儿", "少儿频道"]): 
         return "山东少儿"
-    if "山东教育" in n or "教育卫视" in n: 
+    if any(x in n for x in ["山东教育", "教育卫视"]): 
         return "山东教育卫视"
 
     # 全国主流卫视
-    if "北京卫视" in n or "BTV" in n or "北京" in n:
+    if any(x in n for x in ["北京卫视", "BTV", "北京"]):
         return "北京卫视"
     if "浙江卫视" in n: return "浙江卫视"
     if "江苏卫视" in n: return "江苏卫视"
-    if "东方卫视" in n or "上海卫视" in n: return "东方卫视"
+    if any(x in n for x in ["东方卫视", "上海卫视"]): return "东方卫视"
     if "湖南卫视" in n: return "湖南卫视"
     if "安徽卫视" in n: return "安徽卫视"
     if "广东卫视" in n: return "广东卫视"
@@ -125,9 +125,9 @@ def unified_name(raw_name):
 # ========== 核心时间校验（放宽容错，避免误丢节目） ==========
 def get_time_range_limit():
     now = datetime.now()
-    # 放宽时间范围：前后各8天，避免时区误差
-    min_time = now - timedelta(days=DAYS_BEFORE + 1)
-    max_time = now + timedelta(days=DAYS_AFTER + 1)
+    # 放宽时间范围：前后各10天，避免时区误差
+    min_time = now - timedelta(days=DAYS_BEFORE)
+    max_time = now + timedelta(days=DAYS_AFTER)
     return min_time, max_time
 
 MIN_VALID_TIME, MAX_VALID_TIME = get_time_range_limit()
@@ -137,11 +137,12 @@ def is_datetime_valid(dt):
     if dt.year < 2020 or dt.year > 2030:
         return False
     if not (MIN_VALID_TIME <= dt <= MAX_VALID_TIME):
+        logger.debug(f"时间超出范围，过滤: {dt}")
         return False
     return True
 
 def safe_parse_time(time_str):
-    """兼容百川源的非标准时间戳，不轻易丢弃"""
+    """兼容所有格式的时间戳，不轻易丢弃"""
     if not time_str:
         return None
     try:
@@ -151,6 +152,9 @@ def safe_parse_time(time_str):
         elif len(time_str) == 12:
             # 兼容YYYYMMDDHHMM
             dt = datetime.strptime(time_str, "%Y%m%d%H%M")
+        elif len(time_str) == 8:
+            # 兼容YYYYMMDD
+            dt = datetime.strptime(time_str, "%Y%m%d")
         else:
             # 兼容其他格式
             dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
@@ -203,7 +207,7 @@ def fetch_source(url):
     finally:
         session.close()
 
-# ========== XML解析模块（强制节目channel字段映射） ==========
+# ========== XML解析模块（强制节目channel字段映射，解决酷九不识别） ==========
 def parse_xml_content(content):
     # 解压gzip
     if content.startswith(b'\x1f\x8b'):
@@ -222,7 +226,7 @@ def parse_xml_content(content):
     channel_dict = {}
     prog_list = []
 
-    # 先收集所有频道，建立原始ID到标准ID的映射
+    # 先收集所有频道，建立原始ID/名称到标准ID的映射
     id_map = {}
     for ch_node in root.xpath("//channel"):
         raw_id = ch_node.get("id", "").strip()
@@ -239,7 +243,7 @@ def parse_xml_content(content):
         channel_dict[new_name] = ch_node
     logger.info(f"📺 XML解析获取频道数量: {len(channel_dict)}")
 
-    # 解析节目（强制把channel字段替换成标准ID）
+    # 解析节目（强制把channel字段替换成标准ID，不管源里是什么）
     valid_count = 0
     invalid_count = 0
     for prog_node in root.xpath("//programme"):
@@ -367,7 +371,7 @@ def read_source_list():
 # ========== 主程序 ==========
 def main():
     logger.info("==============================================")
-    logger.info("🚀 EPG生成任务开始 周期:前7天+后7天")
+    logger.info("🚀 EPG生成任务开始 周期:前10天+后10天")
     logger.info("==============================================")
 
     out_gz_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
@@ -413,7 +417,7 @@ def main():
     # 去重
     global_programs = deduplicate_programs(global_programs)
 
-    # 必备频道兜底（防止空频道无节目）
+    # 必备频道兜底（强制所有频道都存在，避免空频道）
     need_default_channels = [
         "CCTV1","CCTV2","CCTV3","CCTV4","CCTV5","CCTV5+","CCTV6","CCTV7","CCTV8","CCTV9","CCTV10",
         "CCTV11","CCTV12","CCTV13","CCTV14","CCTV15","CCTV17","CCTV4K",
