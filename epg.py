@@ -7,6 +7,10 @@ from lxml import etree
 from datetime import datetime, timedelta
 import io
 import time
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ========== 固定配置：前7天 + 后7天 ==========
 LOG_FILE = "epg_update.log"
@@ -43,7 +47,7 @@ def unified_name(raw_name):
     n = f2s(raw_name).strip()
     lower_n = n.lower()
 
-     # --- CCTV 系列全修复 ---
+    # --- CCTV 系列全修复 ---
     if "CCTV-1" in n or "CCTV1" in n or "综合" in n:
         return "CCTV1"
     if "CCTV-2" in n or "CCTV2" in n or "财经" in n:
@@ -85,7 +89,7 @@ def unified_name(raw_name):
     if "山东卫视" in n: return "山东卫视"
     if "山东新闻" in n: return "山东新闻"
     if "山东齐鲁" in n or "齐鲁频道" in n: return "山东齐鲁"
-    if "山东体育" in n: return "山东体育"
+    if "山东体育" in n: return "山东体育休闲"
     if "山东文旅" in n: return "山东文旅"
     if "山东生活" in n: return "山东生活"
     if "山东综艺" in n: return "山东综艺"
@@ -94,7 +98,8 @@ def unified_name(raw_name):
     if "山东教育" in n: return "山东教育卫视"
 
     # 全国主流卫视
-    if "北京卫视" in n: return "北京卫视"
+    if "北京卫视" in n or "BTV" in n or "北京" in n:
+        return "北京卫视"
     if "浙江卫视" in n: return "浙江卫视"
     if "江苏卫视" in n: return "江苏卫视"
     if "东方卫视" in n or "上海卫视" in n: return "东方卫视"
@@ -138,16 +143,29 @@ def safe_parse_time(time_str):
         logger.debug(f"时间解析失败: {time_str} | 原因: {str(e)[:30]}")
         return None
 
-# ========== 网络请求模块 ==========
+# ========== 网络请求模块（带重试+长超时，解决522问题） ==========
 HEADERS = {
-    "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
+
+def requests_session_with_retry():
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[500, 502, 503, 504, 520, 521, 522, 524]
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
 def fetch_source(url):
     logger.info(f"🔍 开始抓取源: {url}")
     start_t = time.time()
+    session = requests_session_with_retry()
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=25)
+        resp = session.get(url, headers=HEADERS, timeout=30, verify=False)
         cost = round(time.time() - start_t, 2)
         if resp.status_code != 200:
             logger.error(f"❌ 源请求失败: 状态码={resp.status_code} 耗时={cost}s")
@@ -164,6 +182,8 @@ def fetch_source(url):
         cost = round(time.time() - start_t, 2)
         logger.error(f"❌ 源抓取异常: {str(e)[:40]} 耗时={cost}s")
         return None, None
+    finally:
+        session.close()
 
 # ========== XML解析模块（兼容百川源，保留所有有效节目） ==========
 def parse_xml_content(content):
