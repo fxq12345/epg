@@ -90,7 +90,7 @@ def fetch_source(url):
         logger.error(f"抓取失败: {e}")
         return None, None
 
-# ===================== 核心修改：适配酷九的epgid映射 =====================
+# ===================== 核心修改：适配酷九的epgid映射 + 容错 =====================
 def load_channel_map():
     """
     读取 epg_data.json，生成以 epgid 为标准ID的映射表
@@ -100,7 +100,7 @@ def load_channel_map():
     alias_to_std = {}
     std_to_display = {}
     if not os.path.exists(JSON_MAP_FILE):
-        logger.error(f"未找到映射文件: {JSON_MAP_FILE}，将使用原始名称")
+        logger.warning(f"未找到映射文件: {JSON_MAP_FILE}，将使用原始名称")
         return alias_to_std, std_to_display
 
     try:
@@ -136,7 +136,8 @@ def load_channel_map():
         return alias_to_std, std_to_display
 
     except Exception as e:
-        logger.error(f"解析JSON映射表失败: {e}")
+        logger.error(f"解析JSON映射表失败: {e}，将使用原始频道ID")
+        # 【关键修复】解析失败时返回空映射，程序继续运行
         return {}, {}
 
 def get_standard_id(raw_id, alias_to_std):
@@ -166,7 +167,7 @@ def get_standard_id(raw_id, alias_to_std):
             if cctv_candidate in alias_to_std:
                 return alias_to_std[cctv_candidate]
 
-    # 4. 最终兜底：返回原清洗后的ID
+    # 4. 最终兜底：返回原清洗后的ID（保证不会丢频道）
     return clean_id.replace(" ", "").replace("-", "").lower()
 
 # ===================== XML解析 =====================
@@ -280,12 +281,20 @@ def main():
             seen_prog.add(key)
             unique_programs.append(p)
 
+    # --- 关键修复：收集所有节目里出现过的频道ID ---
+    all_channel_ids = set()
+    for p in unique_programs:
+        all_channel_ids.add(p.get("channel"))
+    logger.info(f"本次解析到的频道总数: {len(all_channel_ids)}")
+
     # --- 生成最终XML ---
     root = etree.Element("tv")
-    # 生成统一的channel标签（只生成一次，用标准epgid）
-    for std_id, display_name in std_to_display.items():
+
+    # 【核心修复】优先使用映射表的频道信息，无映射时用原始ID作为频道名
+    for ch_id in all_channel_ids:
+        display_name = std_to_display.get(ch_id, ch_id)
         ch_node = etree.SubElement(root, "channel")
-        ch_node.set("id", std_id)
+        ch_node.set("id", ch_id)
         dn_node = etree.SubElement(ch_node, "display-name", attrib={"lang":"zh"})
         dn_node.text = display_name
 
@@ -299,7 +308,7 @@ def main():
     with gzip.open(out_path, "wb") as f:
         f.write(xml_bytes)
 
-    logger.info(f"完成！总频道数: {len(std_to_display)}, 总节目数: {len(unique_programs)}")
+    logger.info(f"完成！总频道数: {len(all_channel_ids)}, 总节目数: {len(unique_programs)}")
     logger.info(f"文件已保存至: {out_path}")
     logger.info("========== 结束 ==========")
 
