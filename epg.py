@@ -41,7 +41,7 @@ def f2s(text):
         text = text.replace(a, b)
     return text.strip()
 
-# ========== 全量频道标准化映射（修复CCTV17/4K + 山东全系列） ==========
+# ========== 全量频道标准化映射（强制和你播放器里的名称一致） ==========
 def unified_name(raw_name):
     if not raw_name: return raw_name
     n = f2s(raw_name).strip()
@@ -137,8 +137,6 @@ def is_datetime_valid(dt):
     if dt.year < 2020 or dt.year > 2030:
         return False
     if not (MIN_VALID_TIME <= dt <= MAX_VALID_TIME):
-        # 打印一下被过滤的时间，方便排查
-        logger.debug(f"时间超出范围，过滤: {dt}")
         return False
     return True
 
@@ -205,7 +203,7 @@ def fetch_source(url):
     finally:
         session.close()
 
-# ========== XML解析模块（修复节目频道匹配问题） ==========
+# ========== XML解析模块（强制节目channel字段映射） ==========
 def parse_xml_content(content):
     # 解压gzip
     if content.startswith(b'\x1f\x8b'):
@@ -224,10 +222,16 @@ def parse_xml_content(content):
     channel_dict = {}
     prog_list = []
 
-    # 解析频道
+    # 先收集所有频道，建立原始ID到标准ID的映射
+    id_map = {}
     for ch_node in root.xpath("//channel"):
+        raw_id = ch_node.get("id", "").strip()
         raw_name = ch_node.findtext("display-name", "").strip()
         new_name = unified_name(raw_name)
+        # 把原始ID和频道名都映射到标准ID
+        id_map[raw_id] = new_name
+        id_map[raw_name] = new_name
+        # 更新频道节点的id和display-name
         ch_node.set("id", new_name)
         disp_node = ch_node.find("display-name")
         if disp_node is not None:
@@ -235,12 +239,16 @@ def parse_xml_content(content):
         channel_dict[new_name] = ch_node
     logger.info(f"📺 XML解析获取频道数量: {len(channel_dict)}")
 
-    # 解析节目（放宽过滤，只丢弃严重无效时间）
+    # 解析节目（强制把channel字段替换成标准ID）
     valid_count = 0
     invalid_count = 0
     for prog_node in root.xpath("//programme"):
         ch_raw_id = prog_node.get("channel", "").strip()
-        ch_new_id = unified_name(ch_raw_id)
+        # 先通过映射表找标准ID，找不到再用频道名规则匹配
+        if ch_raw_id in id_map:
+            ch_new_id = id_map[ch_raw_id]
+        else:
+            ch_new_id = unified_name(ch_raw_id)
 
         start_str = prog_node.get("start", "")
         stop_str = prog_node.get("stop", "")
@@ -254,7 +262,7 @@ def parse_xml_content(content):
             invalid_count += 1
             continue
 
-        # 重建标准节目节点
+        # 重建标准节目节点，强制使用标准channel ID
         new_prog = etree.Element("programme")
         new_prog.set("start", start_dt.strftime("%Y%m%d%H%M%S +0800"))
         new_prog.set("stop", stop_dt.strftime("%Y%m%d%H%M%S +0800"))
