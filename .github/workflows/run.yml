@@ -1,0 +1,33 @@
+name: 自动更新CCTV EPG
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '0 2 * * *'  # 每天凌晨2点自动运行
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install requests
+
+      - name: 运行抓取脚本
+        run: python cctv_epg.py
+
+      - name: 提交更新文件
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git add epg.xml.gz
+          git commit -m "自动更新EPG $(date +%Y-%m-%d)"
+          git push
