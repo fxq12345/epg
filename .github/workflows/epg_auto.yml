@@ -1,7 +1,12 @@
 name: EPG 稳定更新
 on:
   schedule:
-    - cron: '0 16 * * *'
+    # 北京时间 04:50 执行（UTC 20:50）
+    - cron: '50 20 * * *'
+    # 北京时间 10:20 执行（UTC 02:20）
+    - cron: '20 2 * * *'
+    # 北京时间 16:20 执行（UTC 08:20）
+    - cron: '20 8 * * *'
   workflow_dispatch:
 jobs:
   build:
