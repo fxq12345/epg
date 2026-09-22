@@ -4,30 +4,24 @@ from io import BytesIO
 from xml.etree import ElementTree as ET
 import os
 import html
-from datetime import datetime, timedelta
 
 # EPG源地址
 EPG_URL = "https://raw.githubusercontent.com/sggc/SD-EPG/refs/heads/main/EPG/sggc.xml.gz"
 
-# 输出目录
+# 输出目录，独立文件夹，不和旧脚本output冲突
 OUTPUT_DIR = "output_diyp"
 OUTPUT_DIYP = os.path.join(OUTPUT_DIR, "diyp_epg.txt")
 
 def unescape_all(s):
-    # 循环多层转义解码，清理&符号
+    # 循环多次解码，处理多层 &amp;amp;amp; 嵌套转义
     while True:
         new_s = html.unescape(s)
         if new_s == s:
             break
         s = new_s
+    # 额外：直接删掉 < > 这类尖括号，彻底杜绝DIYP解析异常
     s = s.replace("<", "").replace(">", "")
     return s
-
-def normalize_channel_name(name):
-    # 频道名标准化 CCTV-1 → CCTV1
-    name = unescape_all(name.strip())
-    name = name.replace("-", "").replace(" ","")
-    return name
 
 def get_http(url, timeout=60, retry=3):
     session = requests.Session()
@@ -51,7 +45,7 @@ def main():
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
 
-    print("内存解压并解析XML")
+    print("内存解压并解析XML，不生成临时xml文件")
     try:
         with gzip.GzipFile(fileobj=BytesIO(r.content)) as gz:
             xml_content = gz.read()
@@ -60,15 +54,18 @@ def main():
         print(f"解压/解析失败: {e}")
         return
 
-    print("转换DIYP txt格式，只保留【昨天、今天、明天】三天节目")
+    print("转换为DIYP txt格式")
     epg_lines = []
 
+    # 自动识别命名空间
     ns = {}
     if '}' in root.tag:
         ns_uri = root.tag.split('{')[1].split('}')[0]
         ns['tv'] = ns_uri
 
+    # 频道映射
     channel_map = {}
+    # 兼容有无命名空间两种情况
     if ns:
         channel_list = root.findall('.//tv:channel', ns)
     else:
@@ -81,21 +78,10 @@ def main():
         else:
             dn_node = ch.find('display-name')
         if cid and dn_node is not None and dn_node.text:
-            raw_name = unescape_all(dn_node.text.strip())
-            clean_name = normalize_channel_name(raw_name)
+            clean_name = unescape_all(dn_node.text.strip())
             channel_map[cid] = clean_name
 
-    # ========== 时间范围：昨天 ~ 明天 3天 ==========
-    now = datetime.now()
-    start_time = now - timedelta(days=1)   # 昨天
-    end_time = now + timedelta(days=1)     # 明天
-    def in_time_range(time_str):
-        try:
-            t = datetime.strptime(time_str, "%Y%m%d%H%M%S")
-            return start_time <= t <= end_time
-        except:
-            return False
-
+    # 遍历节目
     if ns:
         prog_list = root.findall('.//tv:programme', ns)
     else:
@@ -112,22 +98,20 @@ def main():
 
         if not all([ch_id, start, stop, title_node is not None]) or len(start)<14 or len(stop)<14:
             continue
-        # 过滤，只保留这三天
-        if not in_time_range(start):
-            continue
 
         ch_name = channel_map.get(ch_id, ch_id)
+        # 循环解码清理节目名称
         title = unescape_all(title_node.text.strip()) if title_node.text else "未知节目"
         s_time = start[:14]
         e_time = stop[:14]
         epg_lines.append(f"{ch_name},{s_time},{e_time},{title}")
 
+    # 写入成品txt
     with open(OUTPUT_DIYP, 'w', encoding='utf-8') as f:
         for line in epg_lines:
             f.write(line + '\n')
 
     print(f"DIYP EPG生成完成，共 {len(epg_lines)} 条节目")
-    print(f"范围：昨天、今天、明天三天")
     print(f"输出路径：{OUTPUT_DIYP}")
 
 if __name__ == '__main__':
