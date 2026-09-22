@@ -12,6 +12,17 @@ EPG_URL = "https://raw.githubusercontent.com/sggc/SD-EPG/refs/heads/main/EPG/sgg
 OUTPUT_DIR = "output_diyp"
 OUTPUT_DIYP = os.path.join(OUTPUT_DIR, "diyp_epg.txt")
 
+def unescape_all(s):
+    # 循环多次解码，处理多层 &amp;amp;amp; 嵌套转义
+    while True:
+        new_s = html.unescape(s)
+        if new_s == s:
+            break
+        s = new_s
+    # 额外：直接删掉 < > 这类尖括号，彻底杜绝DIYP解析异常
+    s = s.replace("<", "").replace(">", "")
+    return s
+
 def get_http(url, timeout=60, retry=3):
     session = requests.Session()
     for i in range(retry):
@@ -67,7 +78,8 @@ def main():
         else:
             dn_node = ch.find('display-name')
         if cid and dn_node is not None and dn_node.text:
-            channel_map[cid] = html.unescape(dn_node.text.strip())
+            clean_name = unescape_all(dn_node.text.strip())
+            channel_map[cid] = clean_name
 
     # 遍历节目
     if ns:
@@ -88,8 +100,8 @@ def main():
             continue
 
         ch_name = channel_map.get(ch_id, ch_id)
-        # 关键修复：还原HTML转义字符，去掉&amp;这类乱码
-        title = html.unescape(title_node.text.strip()) if title_node.text else "未知节目"
+        # 循环解码清理节目名称
+        title = unescape_all(title_node.text.strip()) if title_node.text else "未知节目"
         s_time = start[:14]
         e_time = stop[:14]
         epg_lines.append(f"{ch_name},{s_time},{e_time},{title}")
