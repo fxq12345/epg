@@ -3,6 +3,7 @@ import gzip
 from io import BytesIO
 from xml.etree import ElementTree as ET
 import os
+import html
 
 # EPG源地址
 EPG_URL = "https://raw.githubusercontent.com/sggc/SD-EPG/refs/heads/main/EPG/sggc.xml.gz"
@@ -66,7 +67,7 @@ def main():
         else:
             dn_node = ch.find('display-name')
         if cid and dn_node is not None and dn_node.text:
-            channel_map[cid] = dn_node.text.strip()
+            channel_map[cid] = html.unescape(dn_node.text.strip())
 
     # 遍历节目
     if ns:
@@ -87,7 +88,8 @@ def main():
             continue
 
         ch_name = channel_map.get(ch_id, ch_id)
-        title = title_node.text.strip() if title_node.text else "未知节目"
+        # 关键修复：还原HTML转义字符，去掉&amp;这类乱码
+        title = html.unescape(title_node.text.strip()) if title_node.text else "未知节目"
         s_time = start[:14]
         e_time = stop[:14]
         epg_lines.append(f"{ch_name},{s_time},{e_time},{title}")
