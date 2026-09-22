@@ -45,31 +45,43 @@ def main():
     print("转换为DIYP txt格式")
     epg_lines = []
 
-    # 自动识别xmltv命名空间
+    # 自动识别命名空间
     ns = {}
     if '}' in root.tag:
         ns_uri = root.tag.split('{')[1].split('}')[0]
         ns['tv'] = ns_uri
 
-    def find_all(node, path):
-        return node.findall(path, ns) if ns else node.findall(path)
-    def find(node, path):
-        return node.find(path, ns) if ns else node.find(path)
-
     # 频道映射
     channel_map = {}
-    for ch in find_all(root, './/tv:channel'):
+    # 兼容有无命名空间两种情况
+    if ns:
+        channel_list = root.findall('.//tv:channel', ns)
+    else:
+        channel_list = root.findall('.//channel')
+
+    for ch in channel_list:
         cid = ch.get('id')
-        dn_node = find(ch, 'tv:display-name')
+        if ns:
+            dn_node = ch.find('tv:display-name', ns)
+        else:
+            dn_node = ch.find('display-name')
         if cid and dn_node is not None and dn_node.text:
             channel_map[cid] = dn_node.text.strip()
 
     # 遍历节目
-    for prog in find_all(root, './/tv:programme'):
+    if ns:
+        prog_list = root.findall('.//tv:programme', ns)
+    else:
+        prog_list = root.findall('.//programme')
+
+    for prog in prog_list:
         ch_id = prog.get('channel')
         start = prog.get('start')
         stop = prog.get('stop')
-        title_node = find(prog, 'tv:title')
+        if ns:
+            title_node = prog.find('tv:title', ns)
+        else:
+            title_node = prog.find('title')
 
         if not all([ch_id, start, stop, title_node is not None]) or len(start)<14 or len(stop)<14:
             continue
